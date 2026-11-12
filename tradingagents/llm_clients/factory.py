@@ -1,7 +1,10 @@
 
+import logging
 from typing import Any
 
 from .base_client import BaseLLMClient
+
+logger = logging.getLogger(__name__)
 
 
 def create_llm_client(
@@ -154,3 +157,62 @@ def create_tier_client(config: dict, tier: str, **extra) -> BaseLLMClient:
     kwargs = build_llm_kwargs({**config, "llm_provider": provider})
     return create_llm_client(provider=provider, model=config[f"{tier}_think_llm"], base_url=base_url,
                              **kwargs, **extra)
+
+
+def parse_llm_fallbacks(value) -> list[tuple[str, str]]:
+    """The ``(provider, model)`` pairs of an ``llm_fallbacks`` value, in order.
+
+    Takes a comma-separated string (the ``TRADINGAGENTS_LLM_FALLBACKS`` form) or
+    a list of ``"provider:model"`` strings, ``(provider, model)`` pairs or
+    ``{"provider": ..., "model": ...}`` dicts. Only the first colon separates
+    provider from model, since model ids carry colons (``...:free``).
+    """
+    if not value:
+        return []
+    entries = value.split(",") if isinstance(value, str) else list(value)
+    pairs = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            provider, model = entry.get("provider"), entry.get("model")
+        elif isinstance(entry, (tuple, list)) and len(entry) == 2:
+            provider, model = entry
+        elif isinstance(entry, str):
+            entry = entry.strip()
+            if not entry:
+                continue
+            provider, sep, model = entry.partition(":")
+            if not sep:
+                model = None
+        else:
+            provider = model = None
+        provider, model = (provider or "").strip().lower(), (model or "").strip()
+        if not provider or not model:
+            raise ValueError(f"llm_fallbacks entries must be 'provider:model', got {entry!r}")
+        pairs.append((provider, model))
+    return pairs
+
+
+def create_tier_llm(config: dict, tier: str, **extra) -> Any:
+    """The chat model of the ``quick`` or ``deep`` tier, with ``llm_fallbacks`` behind it."""
+    return with_llm_fallbacks(create_tier_client(config, tier, **extra).get_llm(), config, tier, **extra)
+
+
+def with_llm_fallbacks(llm: Any, config: dict, tier: str, **extra) -> Any:
+    """``llm`` (the ``tier``'s own model) with the configured ``llm_fallbacks`` behind it.
+
+    Each fallback runs on its provider's default endpoint with that provider's
+    settings, and is tried in order when the model before it raises (a spent
+    quota, a rate limit, an outage). A fallback that cannot be built, such as
+    one whose API key is not set, is skipped with a warning.
+    """
+    primary = (tier_provider(config, tier), config[f"{tier}_think_llm"])
+    fallbacks = []
+    for provider, model in parse_llm_fallbacks(config.get("llm_fallbacks")):
+        if (provider, model) == primary:
+            continue
+        kwargs = build_llm_kwargs({**config, "llm_provider": provider})
+        try:
+            fallbacks.append(create_llm_client(provider=provider, model=model, **kwargs, **extra).get_llm())
+        except Exception as exc:
+            logger.warning("LLM fallback %s:%s skipped for the %s tier: %s", provider, model, tier, exc)
+    return llm.with_fallbacks(fallbacks) if fallbacks else llm

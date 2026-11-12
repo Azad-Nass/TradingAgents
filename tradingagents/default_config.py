@@ -16,6 +16,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_DEEP_THINK_BACKEND_URL":    "deep_think_backend_url",
     "TRADINGAGENTS_QUICK_THINK_BACKEND_URL":   "quick_think_backend_url",
     "TRADINGAGENTS_LLM_BACKEND_URL":      "backend_url",
+    "TRADINGAGENTS_LLM_FALLBACKS":        "llm_fallbacks",
     "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
@@ -105,6 +106,12 @@ def build_default_config() -> dict:
         "deep_think_provider": None,
         "quick_think_backend_url": None,
         "deep_think_backend_url": None,
+        # Models tried in order when a tier's own model fails (quota spent, rate
+        # limit, outage), each on its provider's default endpoint and key. A
+        # comma-separated "provider:model" string, e.g.
+        # "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free,openrouter:openrouter/free",
+        # or a list of such strings. None means no fallback.
+        "llm_fallbacks": None,
         # Provider-specific thinking configuration
         "google_thinking_level": None,      # "high", "minimal", etc.
         "openai_reasoning_effort": None,    # "medium", "high", "low"

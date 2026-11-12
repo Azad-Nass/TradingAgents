@@ -291,6 +291,14 @@ config["deep_think_llm"] = "claude-opus-5-5"
 
 A tier on its own provider uses that provider's key and default endpoint; set `quick_think_backend_url` or `deep_think_backend_url` for a local or relay endpoint. The `TRADINGAGENTS_DEEP_THINK_PROVIDER` and `TRADINGAGENTS_QUICK_THINK_PROVIDER` variables set them for the CLI, together with the tier's model variable.
 
+Fallback models take over when a tier's model fails, for example when a free tier's daily quota runs out. They are tried in order, each on its provider's default endpoint and key; one whose key is not set is skipped with a warning:
+
+```python
+config["llm_fallbacks"] = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free,openrouter:openrouter/free"
+```
+
+`TRADINGAGENTS_LLM_FALLBACKS` sets the same list for the CLI. A provider SDK retries a failed call before the next model is tried, so a low `TRADINGAGENTS_LLM_MAX_RETRIES` moves on sooner.
+
 See `tradingagents/default_config.py` for all configuration options.
 
 ### Fundamentals as filed
