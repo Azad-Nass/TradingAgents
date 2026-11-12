@@ -297,7 +297,7 @@ Fallback models take over when a tier's model fails, for example when a free tie
 config["llm_fallbacks"] = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free,openrouter:openrouter/free"
 ```
 
-`TRADINGAGENTS_LLM_FALLBACKS` sets the same list for the CLI. A provider SDK retries a failed call before the next model is tried, so a low `TRADINGAGENTS_LLM_MAX_RETRIES` moves on sooner.
+`TRADINGAGENTS_LLM_FALLBACKS` sets the same list for the CLI. A provider SDK retries a failed call before the next model is tried, so a low `TRADINGAGENTS_LLM_MAX_RETRIES` moves on sooner, and `TRADINGAGENTS_LLM_TIMEOUT` (seconds, 600 by default) bounds how long a stalled request holds up the chain.
 
 See `tradingagents/default_config.py` for all configuration options.
 

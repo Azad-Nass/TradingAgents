@@ -90,6 +90,19 @@ def _coerce_max_tokens(value):
     return n
 
 
+def _coerce_timeout(value):
+    """Validate an ``llm_timeout`` value to positive seconds (env vars are strings)."""
+    if isinstance(value, bool):
+        raise ValueError(f"llm_timeout must be a number of seconds, not a boolean: {value!r}")
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"llm_timeout must be a number of seconds, got {value!r}") from exc
+    if seconds <= 0:
+        raise ValueError(f"llm_timeout must be > 0, got {seconds}")
+    return seconds
+
+
 # Providers that take OpenAI's ``openai_reasoning_effort``.
 REASONING_EFFORT_PROVIDERS = ("openai", "chatgpt")
 
@@ -126,6 +139,12 @@ def build_llm_kwargs(config: dict) -> dict[str, Any]:
     max_retries = config.get("llm_max_retries")
     if max_retries is not None and max_retries != "":
         kwargs["max_retries"] = _coerce_max_retries(max_retries)
+
+    # Per-request timeout in seconds. None leaves each client's own (600 s);
+    # a lower one hands a stalled call to the next llm_fallbacks model sooner.
+    timeout = config.get("llm_timeout")
+    if timeout is not None and timeout != "":
+        kwargs["timeout"] = _coerce_timeout(timeout)
 
     # Output-token cap is cross-provider, but Gemini names it
     # ``max_output_tokens``; forward under the right key when set (#1204).

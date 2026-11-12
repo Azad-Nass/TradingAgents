@@ -166,3 +166,29 @@ def test_each_fallback_gets_its_own_provider_settings(monkeypatch):
 
     (_, _, kwargs), = built
     assert kwargs == {"max_tokens": 4096}  # no Gemini thinking level, OpenAI's name for the cap
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value,expected", [(180, 180.0), ("90", 90.0), ("2.5", 2.5)])
+def test_llm_timeout_is_forwarded_in_seconds(value, expected):
+    assert factory.build_llm_kwargs({"llm_provider": "openrouter", "llm_timeout": value})["timeout"] == expected
+
+
+@pytest.mark.unit
+def test_llm_timeout_unset_leaves_the_client_default():
+    assert "timeout" not in factory.build_llm_kwargs({"llm_provider": "google", "llm_timeout": None})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [0, "-5", "soon", True])
+def test_llm_timeout_rejects_non_positive_or_non_numeric(bad):
+    with pytest.raises(ValueError, match="llm_timeout"):
+        factory.build_llm_kwargs({"llm_provider": "google", "llm_timeout": bad})
+
+
+@pytest.mark.unit
+def test_env_var_sets_llm_timeout(monkeypatch):
+    for key in default_config_module._ENV_OVERRIDES:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("TRADINGAGENTS_LLM_TIMEOUT", "180")
+    assert default_config_module.build_default_config()["llm_timeout"] == "180"
