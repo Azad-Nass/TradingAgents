@@ -93,7 +93,17 @@ python -m independent_trading_agent status
 - `PORTFOLIO_VALUE`، `ACCOUNT_CURRENCY`، `RISK_PER_TRADE_PCT` (پیش‌فرض ۱٪)، `MIN_REWARD_RISK` (پیش‌فرض ۱٫۵)
 - هزینه‌های شبیه‌سازی: `FOREX_SPREAD_PIPS`، `STOCK_SPREAD_BPS`، `CRYPTO_SPREAD_BPS`، `COMMISSION_BPS`، `SLIPPAGE_BPS`
 
-## ۶. زمان‌بندی روزانه
+## ۵٫۵. آیکون دسکتاپ
+
+```powershell
+powershell -ExecutionPolicy Bypass -File independent_trading_agent\desktop\create_shortcut.ps1          # ساخت آیکون «میز هوشمندی بازار»
+powershell -ExecutionPolicy Bypass -File independent_trading_agent\desktop\create_shortcut.ps1 -Remove  # حذف آیکون
+powershell -ExecutionPolicy Bypass -File independent_trading_agent\desktop\stop_dashboard.ps1           # خاموش کردن سرور داشبورد
+```
+
+دوبار کلیک روی آیکون، اگر سرور داشبورد روشن نباشد آن را بی‌صدا و بدون پنجره‌ی کنسول روشن می‌کند و داشبورد را در یک پنجره‌ی جدای Edge باز می‌کند. با بستن پنجره، سرور خاموش نمی‌شود؛ تا خاموش کردن سیستم یا اجرای `stop_dashboard.ps1` روشن می‌ماند. آیکون را `desktop/make_icon.py` می‌سازد.
+
+## ۶. زمان‌بندی روزانه (اختیاری؛ به‌طور پیش‌فرض فعال نیست)
 
 ویندوز، روزهای کاری ساعت ۱۸:۳۰:
 

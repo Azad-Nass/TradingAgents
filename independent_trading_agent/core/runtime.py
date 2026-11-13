@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -109,9 +110,12 @@ def setup_logging(logs_dir: str, verbose: bool = False) -> Path:
             root.removeHandler(handler)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     file_handler = RotatingFileHandler(path, maxBytes=2_000_000, backupCount=5, encoding="utf-8")
-    console = logging.StreamHandler()
-    console.setLevel(logging.DEBUG if verbose else logging.WARNING)
-    for handler in (file_handler, console):
+    handlers = [file_handler]
+    if sys.stderr is not None:  # pythonw (the desktop launcher) has no console
+        console = logging.StreamHandler()
+        console.setLevel(logging.DEBUG if verbose else logging.WARNING)
+        handlers.append(console)
+    for handler in handlers:
         handler.setFormatter(fmt)
         handler.addFilter(RedactingFilter())
         handler._independent_agent = True
