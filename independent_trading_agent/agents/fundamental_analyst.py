@@ -89,18 +89,28 @@ def analyze_macro(ctx: AnalysisContext) -> AgentOpinion:
     ev: list[Evidence] = []
     base, quote = m["base"], m["quote"]
     rb, rq = m.get("rate_base"), m.get("rate_quote")
-    if rb and rq:
+    unc = ["انتظارات بازار از سیاست پولی آینده لحاظ نشده است"]
+    for ccy, r in ((base, rb), (quote, rq)):
+        if r:
+            ev.append(Evidence(f"نرخ بهره {ccy}: {r['value']:.2f}% — {r['kind_fa']}، مشاهده {r['date']}"
+                               f"{' (کهنه؛ در تصمیم استفاده نشد)' if r['stale'] else ''}", 0, 0, r["value"],
+                               f"FRED {r['series']}", m.get("as_of")))
+    if rb and rq and not rb["stale"] and not rq["stale"]:
         diff = rb["value"] - rq["value"]
         stance = 1 if diff > 0.5 else -1 if diff < -0.5 else 0
-        ev.append(Evidence(f"اختلاف نرخ بهره کوتاه‌مدت {base}−{quote}: {diff:+.2f} واحد درصد "
-                           f"({base} {rb['value']:.2f}% تا {rb['date']}، {quote} {rq['value']:.2f}% تا {rq['date']})",
-                           stance, 1.0, diff, "FRED (OECD MEI)", m.get("as_of")))
+        ev.append(Evidence(f"اختلاف نرخ بهره {base}−{quote}: {diff:+.2f} واحد درصد", stance, 1.0, diff,
+                           "FRED", m.get("as_of")))
+        if rb.get("category") != rq.get("category"):
+            unc.append("دو نرخ از یک نوع نیستند (سیاستی در برابر بین‌بانکی)؛ مقایسه تقریبی است")
+    else:
+        unc.append("دست‌کم یکی از نرخ‌های بهره کهنه است (بیش از ۱۲۰ روز)؛ اختلاف نرخ در تصمیم استفاده نشد")
     for ccy, key in ((base, "cpi_base"), (quote, "cpi_quote")):
         c = m.get(key)
-        if c:
-            ev.append(Evidence(f"تورم سالانه {ccy}: {c['value']:.1f}% (تا {c['date']})", 0, 0, c["value"],
-                               "FRED (OECD MEI)", m.get("as_of")))
+        if c and not c.get("stale"):
+            ev.append(Evidence(f"تورم سالانه {ccy}: {c['value']:.1f}% (مشاهده {c['date']})", 0, 0, c["value"],
+                               f"FRED {c['series']}", m.get("as_of")))
+        elif c:
+            unc.append(f"آخرین داده تورم {ccy} مربوط به {c['date']} است (کهنه)")
     score, _ = score_from(ev)
-    unc = ["داده‌های ماهانه با تأخیر منتشر می‌شوند؛ انتظارات بازار از سیاست پولی لحاظ نشده است"]
     return AgentOpinion(MACRO, MACRO_ROLE, True, round(score * 0.6, 3), 0.4 if ev else 0.0, ev, unc,
                         "تفاوت نرخ بهره (Carry) و تورم")

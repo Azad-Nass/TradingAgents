@@ -105,3 +105,23 @@ def test_exposure_nets_currencies():
                    {"symbol": "GBPUSD", "market": "forex", "direction": 1,
                     "sizing": {"notional_account": 50_000, "risk_amount": 1000}}], 100_000)
     assert ex["currency_net"]["USD"] == -150_000 and ex["total_risk_pct"] == 2.0
+
+
+def test_stale_macro_rates_are_reported_but_not_used():
+    from independent_trading_agent.agents import fundamental_analyst
+    from independent_trading_agent.agents.base import AnalysisContext
+    from independent_trading_agent.core.markets import MARKETS
+
+    def ctx(macro):
+        return AnalysisContext("EURUSD", "EUR/USD", "EURUSD=X", MARKETS["forex"], None, None, {}, None, None,
+                               None, "synthetic", macro=macro)
+
+    fresh = {"value": 4.0, "date": "2026-11-11", "series": "DFF", "age_days": 1, "stale": False, "kind_fa": "a"}
+    old = {"value": 2.0, "date": "2026-01-01", "series": "X", "age_days": 315, "stale": True, "kind_fa": "a"}
+    eur = {**fresh, "value": 2.0, "series": "ECBDFR"}
+    used = fundamental_analyst.analyze_macro(ctx({"available": True, "base": "EUR", "quote": "USD",
+                                                  "rate_base": eur, "rate_quote": fresh}))
+    assert used.score < 0  # EUR rate 2 points below USD: bearish EUR/USD
+    ignored = fundamental_analyst.analyze_macro(ctx({"available": True, "base": "EUR", "quote": "USD",
+                                                     "rate_base": old, "rate_quote": fresh}))
+    assert ignored.score == 0 and any("کهنه" in u for u in ignored.uncertainties)
