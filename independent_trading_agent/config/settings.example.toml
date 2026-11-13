@@ -8,7 +8,7 @@
 markets = ["forex", "nasdaq", "nyse", "crypto", "tsx"]
 
 # Symbols analysed in every daily run, besides the scan's picks (mode 1).
-watchlist = ["EURUSD", "GC=F"]
+watchlist = ["EURUSD", "XAUUSD"]
 
 # Scan limits
 max_symbols_per_market = 15
@@ -39,7 +39,7 @@ tradingagents_enabled = false
 tradingagents_top_k = 1
 
 [universe]
-forex = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+forex = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "XAUUSD"]
 nasdaq = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "AMD", "NFLX", "COST", "ADBE", "QQQ"]
 nyse = ["JPM", "V", "XOM", "JNJ", "WMT", "PG", "KO", "BAC", "DIS", "SPY"]
 crypto = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD"]

@@ -56,7 +56,8 @@ def replay_symbol(symbol: str, bars: pd.DataFrame, settings, *, start: str | Non
                                    forex_spread_pips=settings.forex_spread_pips,
                                    stock_spread_bps=settings.stock_spread_bps,
                                    crypto_spread_bps=settings.crypto_spread_bps,
-                                   commission_bps=settings.commission_bps, slippage_bps=settings.slippage_bps)
+                                   commission_bps=settings.commission_bps, slippage_bps=settings.slippage_bps,
+                                   metal_spread_pips=settings.metal_spread_pips)
             ev = evaluate_signal(direction=dec.direction, data_as_of=snap["date"], stop=plan.stop,
                                  target=plan.targets[0], horizon_bars=plan.horizon_bars,
                                  bars=bars.iloc[i + 1:], cost=cost)

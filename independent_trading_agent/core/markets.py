@@ -57,12 +57,29 @@ SESSION_NAMES_FA = {"asia": "آسیا (توکیو)", "london": "لندن", "new_
 
 # ---------------------------------------------------------------- symbols ---
 
+# Spot metals as forex brokers quote them (XAU/USD, XAG/USD). Yahoo has no spot pair for them, so the
+# data comes from the COMEX front-month future, whose price differs from spot by the futures basis.
+# key: (Yahoo futures proxy, ounces per standard lot, pip size)
+METALS = {"XAU": ("GC=F", 100, 0.1), "XAG": ("SI=F", 5000, 0.01)}
+
+
 def forex_pair(symbol: str) -> tuple[str, str] | None:
-    """(base, quote) of a forex symbol in any common spelling, else None."""
+    """(base, quote) of a forex or spot-metal symbol in any common spelling, else None."""
     s = symbol.upper().replace("/", "").replace("=X", "").replace("-", "").strip()
-    if len(s) == 6 and s[:3] in CURRENCIES and s[3:] in CURRENCIES:
+    if len(s) == 6 and s[3:] in CURRENCIES and (s[:3] in CURRENCIES or s[:3] in METALS):
         return s[:3], s[3:]
     return None
+
+
+def is_metal(symbol: str) -> bool:
+    pair = forex_pair(symbol)
+    return bool(pair and pair[0] in METALS)
+
+
+def contract_size(symbol: str) -> int:
+    """Units of the base per standard lot: 100,000 for currencies, ounces for metals."""
+    pair = forex_pair(symbol)
+    return METALS[pair[0]][1] if pair and pair[0] in METALS else 100_000
 
 
 def infer_market(symbol: str) -> str:
@@ -86,6 +103,8 @@ def to_yahoo(symbol: str, market: str | None = None) -> str:
     s = symbol.upper().strip()
     if market == "forex":
         pair = forex_pair(s)
+        if pair and pair[0] in METALS:
+            return METALS[pair[0]][0] if pair[1] == "USD" else s  # only USD-quoted metals have a proxy
         return f"{pair[0]}{pair[1]}=X" if pair else s
     if market == "crypto" and "-" not in s:
         return f"{s}-USD"
@@ -107,6 +126,8 @@ def display_symbol(symbol: str, market: str | None = None) -> str:
 
 def pip_size(symbol: str) -> float:
     pair = forex_pair(symbol)
+    if pair and pair[0] in METALS:
+        return METALS[pair[0]][2]
     return 0.01 if pair and "JPY" in pair else 0.0001
 
 

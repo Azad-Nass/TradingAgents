@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 UTC = UTC
 ENGINE_VERSION = "rule-based-agents/0.1"
 MIN_NEWS_RELEVANCE = 0.3
-NEWS_QUERIES = {"GC=F": "gold price", "SI=F": "silver price", "CL=F": "crude oil price", "BZ=F": "brent oil",
+NEWS_QUERIES = {"XAUUSD": "gold price", "XAGUSD": "silver price", "GC=F": "gold price", "SI=F": "silver price", "CL=F": "crude oil price", "BZ=F": "brent oil",
                 "NG=F": "natural gas price", "HG=F": "copper price"}
 FOREX_PEERS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
 
@@ -92,13 +92,14 @@ class Engine:
 
     def _open_signals(self) -> list[dict]:
         return [{"symbol": s["symbol"], "yahoo": s["yahoo"], "market": s["market"], "direction": s["direction"],
-                 "sizing": s.get("sizing_json")} for s in self.repo.signals(mode="live", status="open")]
+                 "sizing": s.get("sizing_json"), "issued_utc": s["issued_utc"], "label": s["label"]}
+                for s in self.repo.signals(mode="live", status="open")]
 
     def _calibrator(self):
         return make_calibrator(calibration_table(self.repo.evaluations("live")))
 
     def _news(self, sym: str, market_key: str, fundamentals: dict | None) -> tuple[list[dict], str]:
-        query = NEWS_QUERIES.get(sym.upper()) or (
+        query = NEWS_QUERIES.get(sym.upper().replace("/", "")) or NEWS_QUERIES.get(to_yahoo(sym, market_key)) or (
             display_symbol(sym, market_key).replace("/", "") if market_key == "forex" else sym)
         try:
             items = self.provider.news(query, 12)
@@ -192,7 +193,8 @@ class Engine:
         macro = None
         if market_key == "forex":
             base, quote = forex_pair(sym)
-            macro = fred.forex_macro(base, quote, self.now.date())
+            macro = (fred.gold_macro(self.now.date()) if (base, quote) == ("XAU", "USD")
+                     else fred.forex_macro(base, quote, self.now.date()))
         peers = {y: p.bars for y, p in prepared.items() if p.bars is not None and not p.bars.empty}
         bench = prepared.get(m.benchmark).bars if m.benchmark and prepared.get(m.benchmark) else None
 
@@ -228,6 +230,13 @@ class Engine:
         risk = risk_officer.assess(ctx, plan, s, self.fx) if plan else None
         decision = chief.decide(opinions, bull, bear, prep.quality.ok, risk, calibrate)
         plan_d, risk_d = (plan.to_dict() if plan else None), (risk.to_dict() if risk else None)
+        # One open hypothetical signal per symbol: a repeat analysis is stored, but opens no second trade.
+        already_open = next((o for o in open_signals if o["symbol"] == sym), None)
+        if already_open and decision.direction:
+            same = already_open["direction"] == decision.direction
+            decision.reasons_fa.append(
+                f"سیگنال باز قبلی ({already_open['label']}، صادره {already_open['issued_utc'][:16]} UTC) هنوز فعال است؛ "
+                + ("سیگنال تکراری ثبت نشد" if same else "این تحلیل خلاف جهت آن است؛ سیگنال جدید ثبت نشد"))
 
         text, source = narrative.template(disp, decision, opinions, plan_d, risk_d), "template"
         if self.llm and self.llm.available:
@@ -253,7 +262,7 @@ class Engine:
                                 "settings_fingerprint": settings_fingerprint(s)},
         }
         row["id"] = self.repo.add_analysis(row)
-        if decision.direction and plan:
+        if decision.direction and plan and not already_open:
             self.repo.add_signal({
                 "analysis_id": row["id"], "mode": "live", "symbol": sym, "yahoo": yahoo, "market": market_key,
                 "issued_utc": self.now.isoformat(timespec="seconds"), "data_as_of": prep.snap["date"],
@@ -307,7 +316,7 @@ class Engine:
             cost = round_trip_cost(asset_class=m.asset_class, symbol=r["symbol"], price=r["ref_price"],
                                    forex_spread_pips=s.forex_spread_pips, stock_spread_bps=s.stock_spread_bps,
                                    crypto_spread_bps=s.crypto_spread_bps, commission_bps=s.commission_bps,
-                                   slippage_bps=s.slippage_bps)
+                                   slippage_bps=s.slippage_bps, metal_spread_pips=s.metal_spread_pips)
             ev = evaluate_signal(direction=r["direction"], data_as_of=r["data_as_of"], stop=r["stop"],
                                  target=r["targets_json"][0], horizon_bars=r["horizon_bars"], bars=prep.bars,
                                  cost=cost)

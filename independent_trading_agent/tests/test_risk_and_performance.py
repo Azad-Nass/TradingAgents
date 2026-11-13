@@ -125,3 +125,27 @@ def test_stale_macro_rates_are_reported_but_not_used():
     ignored = fundamental_analyst.analyze_macro(ctx({"available": True, "base": "EUR", "quote": "USD",
                                                      "rate_base": old, "rate_quote": fresh}))
     assert ignored.score == 0 and any("کهنه" in u for u in ignored.uncertainties)
+
+
+def test_gold_lots_use_ounces_and_dollar_pips():
+    g = size_position(symbol="XAUUSD", asset_class="forex", quote_ccy="USD", entry=4000.0, stop=3980.0,
+                      portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=no_fx)
+    assert g.stop_pips == pytest.approx(200) and g.pip_value_per_lot == pytest.approx(10)
+    assert g.lots == 0.5 and g.units == 50 and g.risk_amount == pytest.approx(1000)
+    cost = round_trip_cost(asset_class="forex", symbol="XAUUSD", price=4000, forex_spread_pips=1,
+                           stock_spread_bps=5, crypto_spread_bps=10, commission_bps=2, slippage_bps=3)
+    assert cost == pytest.approx(3 * 0.1 / 4000 + 0.0006)
+
+
+def test_gold_macro_reads_real_yields():
+    from independent_trading_agent.agents import fundamental_analyst
+    from independent_trading_agent.agents.base import AnalysisContext
+    from independent_trading_agent.core.markets import MARKETS
+
+    macro = {"available": True, "kind": "metal", "series": "DFII10", "as_of": "2026-11-12", "stale": False,
+             "real_yield": {"value": 2.1, "date": "2026-11-11"}, "real_yield_prev": {"value": 1.8, "date": "2026-10-14"},
+             "change": 0.3}
+    ctx = AnalysisContext("XAUUSD", "XAU/USD", "GC=F", MARKETS["forex"], None, None, {}, None, None, None,
+                          "synthetic", macro=macro)
+    op = fundamental_analyst.analyze_macro(ctx)
+    assert op.score < 0 and "TIPS" in op.evidence[0].text_fa  # rising real yields weigh on gold

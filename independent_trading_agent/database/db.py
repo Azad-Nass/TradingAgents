@@ -157,6 +157,8 @@ class Repository:
         if status:
             sql += " AND s.status=?"
             params.append(status)
+        else:
+            sql += " AND s.status != 'duplicate'"  # repeats of a still-open signal are kept but not listed
         sql += " ORDER BY s.issued_utc DESC LIMIT ?"
         params.append(limit)
         return self._select(sql, params)

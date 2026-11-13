@@ -20,7 +20,11 @@ function num(v, d = 2) {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
   return Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
-function price(v, market) { return num(v, market === "forex" ? 5 : 2); }
+function price(v, market) {
+  if (market !== "forex" || v == null) return num(v, 2);
+  const a = Math.abs(v);
+  return num(v, a >= 500 ? 2 : a >= 20 ? 3 : 5);  // XAU/USD 2, USD/JPY 3, majors 5
+}
 function pct(v, d = 1, sign = true) {
   if (v === null || v === undefined) return "—";
   return (sign && v > 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
@@ -380,10 +384,10 @@ async function route() {
     view.innerHTML = `<div class="alert err">ارتباط با سرور داشبورد برقرار نشد (${esc(e.message)}). مطمئن شوید دستور serve در حال اجراست.</div>`;
   }
 }
-addEventListener("hashchange", () => { state.selected = null; route(); });
+addEventListener("hashchange", () => { state.selected = state.pendingSelect || null; state.pendingSelect = null; route(); });
 
 /* ----------------------------------------------------------------- jobs --- */
-async function startJob(kind, body) {
+async function startJob(kind, body, after) {
   const job = $("#job");
   const buttons = document.querySelectorAll(".analyze button");
   buttons.forEach(b => b.disabled = true);
@@ -398,6 +402,7 @@ async function startJob(kind, body) {
       if (s.status === "done") {
         const labels = s.result.labels ? Object.entries(s.result.labels).map(([k, v]) => `${k}: ${LABEL_FA[v] || v}`).join("، ") : `تحلیل عمیق: ${(s.result.deep || []).join("، ") || "هیچ"}`;
         job.textContent = `انجام شد — ${labels}`;
+        if (after) { await after(); return; }
       } else job.innerHTML = `<span class="err">ناموفق: ${esc(s.error)}</span>`;
       break;
     }
@@ -412,6 +417,13 @@ $("#analyze-form").addEventListener("submit", e => {
   startJob("analyze", { symbols });
 });
 $("#scan-btn").addEventListener("click", () => startJob("scan", {}));
+// Gold: analysed as XAU/USD in the forex section, then shown there with its analysis selected.
+$("#gold-btn").addEventListener("click", () => startJob("analyze", { symbols: ["XAUUSD"], market: "forex" }, async () => {
+  const rows = await api("/api/analyses?market=forex");
+  const gold = rows.find(r => r.symbol === "XAUUSD");
+  if (location.hash === "#/forex") { if (gold) state.selected = gold.id; route(); }
+  else { state.pendingSelect = gold ? gold.id : null; location.hash = "#/forex"; }
+}));
 
 route();
 setInterval(() => { if (state.overview && !document.hidden) api("/api/overview").then(o => { state.overview = o; renderRibbon(o.ribbon); renderMarkets(o.markets); }).catch(() => {}); }, 60000);

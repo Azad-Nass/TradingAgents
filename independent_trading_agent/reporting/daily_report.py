@@ -34,6 +34,13 @@ def num(v, digits: int = 4) -> str:
     return e(v)
 
 
+def price_digits(market: str, price) -> int:
+    """Decimals for a price: XAU/USD 2, USD/JPY 3, other majors 5, everything else 2."""
+    if market != "forex" or price is None:
+        return 2
+    return 2 if price >= 500 else 3 if price >= 20 else 5
+
+
 def pct(v, digits: int = 1) -> str:
     return "—" if v is None else f"{v * 100:+.{digits}f}%"
 
@@ -251,8 +258,7 @@ def _section_b(analyses: list[dict]) -> str:
         group = [a for a in analyses if a["market"] == key]
         if group:
             out.append(f"<h3>{_market_name(key)}</h3>")
-            digits = 5 if key == "forex" else 2
-            out.extend(_analysis_card(a, digits) for a in group)
+            out.extend(_analysis_card(a, price_digits(key, a.get("last_price"))) for a in group)
     return "\n".join(out)
 
 

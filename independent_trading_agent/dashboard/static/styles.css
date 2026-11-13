@@ -80,6 +80,15 @@ button {
   padding: 6px 14px; font-weight: 700; cursor: pointer;
 }
 button.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
+button.gold { display: inline-flex; align-items: center; gap: 6px; background: var(--gold-bg); color: var(--gold-ink);
+  border-color: var(--gold); }
+button.gold:hover { background: var(--gold); color: var(--gold-on); }
+button.gold .coin { width: 10px; height: 10px; border-radius: 50%; background: var(--gold); box-shadow: inset 0 0 0 2px var(--gold-bg); }
+:root { --gold: #b8860b; --gold-bg: #fbf3df; --gold-ink: #6b4e00; --gold-on: #ffffff; }
+:root[data-theme="dark"] { --gold: #e0b84a; --gold-bg: #2e2510; --gold-ink: #f3d78b; --gold-on: #1c1500; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --gold: #e0b84a; --gold-bg: #2e2510; --gold-ink: #f3d78b; --gold-on: #1c1500; }
+}
 button:disabled { opacity: .55; cursor: progress; }
 .job { font-size: .9rem; }
 .job .err { color: var(--crit); }

@@ -4,7 +4,7 @@ from __future__ import annotations
 from zoneinfo import ZoneInfo
 
 from ..agents.base import AgentOpinion, AnalysisContext, Evidence, not_applicable
-from ..core.markets import SESSION_NAMES_FA, forex_pair, forex_sessions_open, pip_size
+from ..core.markets import METALS, SESSION_NAMES_FA, forex_pair, forex_sessions_open, pip_size
 
 NAME, ROLE = "forex_analyst", "تحلیلگر فارکس"
 
@@ -38,7 +38,21 @@ def analyze(ctx: AnalysisContext) -> AgentOpinion:
         ev.append(Evidence(f"ATR14 روزانه ≈ {s['atr14'] / pip:,.0f} پیپ (اندازه پیپ {pip})", 0, 0, s["atr14"] / pip, src, asof))
 
     strength = currency_strength(ctx.peers)
-    if base in strength and quote in strength:
+    metal = base in METALS
+    if metal:
+        unc.append(f"داده {base}/{quote} از قرارداد آتی {METALS[base][0]} (COMEX، نزدیک‌ترین سررسید) است؛ "
+                   "قیمت آن با قیمت نقدی بروکر به اندازه Basis (معمولاً چند تا چند ده دلار) فرق دارد و "
+                   "تعویض سررسید می‌تواند جهش ساختگی بسازد")
+        unc.append("طلا دارایی امن است و به شوک‌های ریسک، بازده واقعی اوراق و قدرت دلار حساس است")
+        if quote in strength:
+            usd = strength[quote]
+            stance = -1 if usd > 0.004 else 1 if usd < -0.004 else 0
+            label = "دلار قوی؛ فشار بر طلا" if stance < 0 else "دلار ضعیف؛ حمایت از طلا" if stance > 0 else "خنثی"
+            ev.append(Evidence(f"قدرت ۲۰ کندلی {quote} در برابر ارزهای اصلی: {usd:+.2%} ({label})",
+                               stance, 1.0, usd, src, asof))
+        else:
+            unc.append("قدرت دلار محاسبه نشد (جفت‌ارزهای مرجع کافی نبود)")
+    elif base in strength and quote in strength:
         diff = strength[base] - strength[quote]
         stance = 1 if diff > 0.004 else -1 if diff < -0.004 else 0
         ranked = sorted(strength.items(), key=lambda kv: kv[1], reverse=True)
@@ -56,4 +70,4 @@ def analyze(ctx: AnalysisContext) -> AgentOpinion:
 
     stance_score = sum(e.stance * e.weight for e in ev) / max(1.0, sum(e.weight for e in ev if e.stance))
     return AgentOpinion(NAME, ROLE, True, round(stance_score * 0.7, 3), 0.35, ev, unc,
-                        f"{base}/{quote}: سشن‌ها، پیپ و قدرت نسبی ارز")
+                        f"{base}/{quote}: سشن‌ها، پیپ و {'قدرت دلار' if metal else 'قدرت نسبی ارز'}")

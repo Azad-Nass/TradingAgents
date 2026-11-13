@@ -64,6 +64,38 @@ def fred_today() -> date:
     return datetime.now(ZoneInfo("America/Chicago")).date()
 
 
+def gold_macro(as_of: date) -> dict:
+    """US 10-year real yield (TIPS, DFII10) now and about 20 trading days earlier, as of ``as_of``."""
+    as_of = min(as_of, fred_today())
+    key = secret("FRED_API_KEY")
+    if not key:
+        return {"available": False, "reason_fa": "کلید FRED (INDEPENDENT_AGENT_FRED_API_KEY) تنظیم نشده است"}
+    params = urllib.parse.urlencode({
+        "series_id": "DFII10", "api_key": key, "file_type": "json", "sort_order": "desc", "limit": 40,
+        "observation_end": as_of.isoformat(), "realtime_start": as_of.isoformat(),
+        "realtime_end": as_of.isoformat()})
+    try:
+        url = f"https://api.stlouisfed.org/fred/series/observations?{params}"
+        with urllib.request.urlopen(url, timeout=20) as resp:
+            obs = json.loads(resp.read().decode("utf-8")).get("observations", [])
+    except Exception as exc:
+        logger.info("FRED DFII10 unavailable: %s", redact(str(exc)))
+        return {"available": False, "reason_fa": "بازده واقعی اوراق (DFII10) از FRED دریافت نشد"}
+    vals = []
+    for o in obs:
+        try:
+            vals.append((o["date"], float(o["value"])))
+        except (ValueError, KeyError):
+            continue
+    if len(vals) < 21:
+        return {"available": False, "reason_fa": "داده کافی برای بازده واقعی اوراق وجود ندارد"}
+    (d0, v0), (d20, v20) = vals[0], vals[20]
+    age = (as_of - date.fromisoformat(d0)).days
+    return {"available": True, "kind": "metal", "as_of": as_of.isoformat(), "series": "DFII10",
+            "real_yield": {"value": v0, "date": d0}, "real_yield_prev": {"value": v20, "date": d20},
+            "change": round(v0 - v20, 3), "stale": age > 10}
+
+
 def forex_macro(base: str, quote: str, as_of: date) -> dict:
     as_of = min(as_of, fred_today())
     key = secret("FRED_API_KEY")

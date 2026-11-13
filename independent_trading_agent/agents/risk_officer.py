@@ -75,7 +75,7 @@ def assess(ctx: AnalysisContext, plan: TradePlan | None, settings, fx: FxRate) -
         ra.cautions.append("نزدیک بسته‌شدن هفتگی فارکس (جمعه، نیویورک): ریسک شکاف قیمت آخر هفته")
 
     open_signals = [o for o in ctx.open_signals if o.get("symbol") != ctx.symbol]
-    if len(open_signals) >= settings.max_open_signals:
+    if len({o.get("symbol") for o in open_signals}) >= settings.max_open_signals:
         ra.vetoes.append(f"سقف {settings.max_open_signals} سیگنال باز فرضی پر است")
     for o in open_signals:
         other = ctx.peers.get(o.get("yahoo") or "")

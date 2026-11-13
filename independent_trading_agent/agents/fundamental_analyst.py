@@ -78,6 +78,23 @@ def analyze_company(ctx: AnalysisContext) -> AgentOpinion:
                         f"کیفیت/ارزش‌گذاری: امتیاز {score:+.2f}")
 
 
+def _gold_macro(m: dict) -> AgentOpinion:
+    ry, prev, chg = m["real_yield"], m["real_yield_prev"], m["change"]
+    unc = ["بازده واقعی تنها عامل کلان طلا نیست؛ خرید بانک‌های مرکزی و تقاضای امن لحاظ نشده است"]
+    if m.get("stale"):
+        unc.append("آخرین داده بازده واقعی بیش از ۱۰ روز قدیمی است؛ در تصمیم استفاده نشد")
+        stance = 0
+    else:
+        stance = -1 if chg > 0.10 else 1 if chg < -0.10 else 0
+    effect = "افزایش؛ فشار بر طلا" if stance < 0 else "کاهش؛ حمایت از طلا" if stance > 0 else "بدون تغییر معنادار"
+    ev = [Evidence(f"بازده واقعی ۱۰ ساله آمریکا (TIPS): {ry['value']:.2f}% در {ry['date']}، تغییر {chg:+.2f} "
+                   f"واحد درصد نسبت به {prev['date']} ({effect})", stance, 1.0, chg, f"FRED {m['series']}",
+                   m.get("as_of"))]
+    score, _ = score_from(ev)
+    return AgentOpinion(MACRO, MACRO_ROLE, True, round(score * 0.6, 3), 0.4 if stance else 0.3, ev, unc,
+                        "بازده واقعی اوراق آمریکا (مهم‌ترین عامل کلان طلا)")
+
+
 def analyze_macro(ctx: AnalysisContext) -> AgentOpinion:
     if ctx.market.asset_class != "forex":
         return not_applicable(MACRO, MACRO_ROLE, "این بخش فقط برای Forex استفاده می‌شود")
@@ -87,6 +104,8 @@ def analyze_macro(ctx: AnalysisContext) -> AgentOpinion:
         return AgentOpinion(MACRO, MACRO_ROLE, True, 0.0, 0.0, [], [reason],
                             "داده اقتصاد کلان (نرخ بهره و تورم) در دسترس نیست؛ در تصمیم اثری ندارد")
     ev: list[Evidence] = []
+    if m.get("kind") == "metal":
+        return _gold_macro(m)
     base, quote = m["base"], m["quote"]
     rb, rq = m.get("rate_base"), m.get("rate_quote")
     unc = ["انتظارات بازار از سیاست پولی آینده لحاظ نشده است"]

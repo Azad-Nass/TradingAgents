@@ -110,3 +110,23 @@ def test_backtest_replay_has_no_look_ahead(settings):
     early_a = [(r["date"], r["label"], r["score"]) for r in a if r["date"] < cutoff]
     early_b = [(r["date"], r["label"], r["score"]) for r in b if r["date"] < cutoff]
     assert early_a and early_a == early_b
+
+
+def test_gold_is_analysed_in_the_forex_section(settings, now):
+    gold = synthetic_bars(start_price=4000, vol=0.01, seed=31)
+    eng = engine(settings, now, {"GC=F": gold})
+    row = eng.analyze(["XAUUSD"], "run1")[0]
+    assert row["market"] == "forex" and row["display"] == "XAU/USD" and row["yahoo"] == "GC=F"
+    fx = next(o for o in row["opinions_json"] if o["agent"] == "forex_analyst")
+    assert any("قرارداد آتی" in u for u in fx["uncertainties"])
+
+
+def test_repeat_analysis_opens_no_duplicate_signal(settings, now):
+    frames = {"UPP": synthetic_bars(drift=0.004, vol=0.01, seed=11)}
+    eng = engine(settings, now, frames)
+    first = eng.analyze(["UPP"], "run1")[0]
+    if first["label"] not in ("BUY", "STRONG BUY", "SELL", "STRONG SELL"):
+        return  # no trade on this synthetic series; nothing to duplicate
+    second = engine(settings, now, frames).analyze(["UPP"], "run2")[0]
+    assert len(eng.repo.signals(status="open")) == 1
+    assert any("هنوز فعال است" in r for r in second["decision_json"]["reasons_fa"])

@@ -5,10 +5,9 @@ import math
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
-from ..core.markets import forex_pair, pip_size
+from ..core.markets import contract_size, forex_pair, is_metal, pip_size
 
 FxRate = Callable[[str, str], "float | None"]  # (from_ccy, to_ccy) -> rate, or None
-LOT = 100_000
 
 
 @dataclass
@@ -55,9 +54,10 @@ def size_position(*, symbol: str, asset_class: str, quote_ccy: str, entry: float
             q2a = fx(quote, account_ccy)
         if q2a is None:
             return Sizing(False, notes=[f"نرخ تبدیل {quote}→{account_ccy} در دسترس نیست"])
-        pip_value = LOT * pip * q2a
+        lot = contract_size(symbol)
+        pip_value = lot * pip * q2a
         lots = math.floor(round(risk_amount / (stop_pips * pip_value) * 100, 6)) / 100
-        units = lots * LOT
+        units = lots * lot
         b2a = 1.0 if base == account_ccy else entry * q2a
         notional = units * b2a
         notes = [] if lots > 0 else ["حجم محاسبه‌شده کمتر از ۰٫۰۱ لات است"]
@@ -79,10 +79,11 @@ def size_position(*, symbol: str, asset_class: str, quote_ccy: str, entry: float
 
 def round_trip_cost(*, asset_class: str, symbol: str, price: float, forex_spread_pips: float,
                     stock_spread_bps: float, crypto_spread_bps: float, commission_bps: float,
-                    slippage_bps: float) -> float:
+                    slippage_bps: float, metal_spread_pips: float = 3.0) -> float:
     """Spread + commissions + slippage of entering and exiting, as a fraction of price."""
     if asset_class == "forex":
-        spread = forex_spread_pips * pip_size(symbol) / price
+        pips = metal_spread_pips if is_metal(symbol) else forex_spread_pips
+        spread = pips * pip_size(symbol) / price
         return spread + 2 * slippage_bps / 1e4
     spread_bps = crypto_spread_bps if asset_class == "crypto" else stock_spread_bps
     return spread_bps / 1e4 + 2 * commission_bps / 1e4 + 2 * slippage_bps / 1e4

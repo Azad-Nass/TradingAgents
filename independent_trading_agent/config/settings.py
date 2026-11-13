@@ -23,7 +23,7 @@ TOML_FILE = PACKAGE_DIR / "config" / "settings.toml"
 MARKET_KEYS = ("forex", "nasdaq", "nyse", "crypto", "tsx", "tsxv")
 
 DEFAULT_UNIVERSE: dict[str, list[str]] = {
-    "forex": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"],
+    "forex": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "XAUUSD"],
     "nasdaq": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "AMD", "NFLX",
                "COST", "ADBE", "QQQ"],
     "nyse": ["JPM", "V", "XOM", "JNJ", "WMT", "PG", "KO", "BAC", "DIS", "SPY"],
@@ -65,6 +65,7 @@ class Settings:
     min_dollar_volume: float = 5_000_000.0
     min_dollar_volume_tsxv: float = 200_000.0
     forex_spread_pips: float = 1.0
+    metal_spread_pips: float = 3.0     # XAU/USD pip = 0.1, so 3 pips = $0.30
     stock_spread_bps: float = 5.0
     crypto_spread_bps: float = 10.0
     commission_bps: float = 2.0

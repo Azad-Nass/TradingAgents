@@ -92,3 +92,11 @@ def test_bar_without_close_is_dropped_and_reported(now):
     assert prep.bars.index[-1] == df.index[-2]
     assert prep.snap["dollar_vol20"] is not None
     assert any("بدون قیمت بسته‌شدن" in w for w in prep.quality.warnings)
+
+
+def test_spot_metals_are_forex_with_futures_data():
+    assert markets.infer_market("XAUUSD") == "forex" and markets.infer_market("XAU/USD") == "forex"
+    assert markets.to_yahoo("XAUUSD") == "GC=F" and markets.to_yahoo("XAGUSD") == "SI=F"
+    assert markets.display_symbol("XAUUSD") == "XAU/USD"
+    assert markets.pip_size("XAUUSD") == 0.1 and markets.contract_size("XAUUSD") == 100
+    assert markets.infer_market("GC=F") == "other"  # the future itself stays a future
