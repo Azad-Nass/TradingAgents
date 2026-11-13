@@ -1,0 +1,12 @@
+# Independent Trading Agent: runtime dependencies (Python 3.11+).
+# The standard library covers the database (sqlite3), settings (tomllib),
+# the dashboard server (http.server) and the LLM client (urllib).
+yfinance>=0.2.50
+pandas>=2.2
+numpy>=1.26
+tzdata>=2024.1   # IANA time zones on Windows
+
+# Optional: deep multi-agent LLM analysis through the TradingAgents project
+# next to this folder (pip install -e .. from this folder's parent).
+# Optional: tests
+pytest>=8.0

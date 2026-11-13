@@ -1,0 +1,107 @@
+import pandas as pd
+import pytest
+
+from independent_trading_agent.performance.evaluate import calibration_table, evaluate_signal, make_calibrator, metrics
+from independent_trading_agent.portfolio.exposure import exposure
+from independent_trading_agent.risk_management.sizing import round_trip_cost, size_position
+
+
+def no_fx(a, b):
+    return None
+
+
+def test_stock_sizing_risks_one_percent():
+    s = size_position(symbol="AAPL", asset_class="stock", quote_ccy="USD", entry=100, stop=95,
+                      portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=no_fx)
+    assert s.ok and s.units == 200 and s.risk_amount == pytest.approx(1000)
+
+
+def test_cad_stock_needs_and_uses_conversion():
+    s = size_position(symbol="RY.TO", asset_class="stock", quote_ccy="CAD", entry=100, stop=98,
+                      portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=no_fx)
+    assert not s.ok
+    s = size_position(symbol="RY.TO", asset_class="stock", quote_ccy="CAD", entry=100, stop=98,
+                      portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=lambda a, b: 0.72)
+    assert s.units == 694  # 1000 / (2 * 0.72)
+
+
+def test_forex_lots_and_pip_value():
+    eur = size_position(symbol="EURUSD", asset_class="forex", quote_ccy="USD", entry=1.10, stop=1.095,
+                        portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=no_fx)
+    assert eur.stop_pips == pytest.approx(50) and eur.pip_value_per_lot == pytest.approx(10)
+    assert eur.lots == 2.0
+    jpy = size_position(symbol="USDJPY", asset_class="forex", quote_ccy="USD", entry=150.0, stop=149.0,
+                        portfolio_value=100_000, risk_pct=1, account_ccy="USD", fx=no_fx)
+    assert jpy.stop_pips == pytest.approx(100)
+    assert jpy.pip_value_per_lot == pytest.approx(1000 / 150, abs=1e-3)  # 100k * 0.01 JPY in USD
+    assert jpy.lots == 1.5
+
+
+def test_costs_are_positive_and_forex_uses_pips():
+    fx = round_trip_cost(asset_class="forex", symbol="EURUSD", price=1.1, forex_spread_pips=1, stock_spread_bps=5,
+                         crypto_spread_bps=10, commission_bps=2, slippage_bps=3)
+    assert fx == pytest.approx(0.0001 / 1.1 + 0.0006)
+    st = round_trip_cost(asset_class="stock", symbol="AAPL", price=100, forex_spread_pips=1, stock_spread_bps=5,
+                         crypto_spread_bps=10, commission_bps=2, slippage_bps=3)
+    assert st == pytest.approx(0.0015)
+
+
+def bars(rows, start="2026-01-05"):
+    idx = pd.bdate_range(start, periods=len(rows))
+    return pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx).assign(volume=1.0)
+
+
+def test_entry_is_next_bar_open_and_stop_wins_ties():
+    b = bars([[100, 101, 99, 100], [100, 111, 94, 100], [100, 101, 99, 100]])
+    ev = evaluate_signal(direction=1, data_as_of="2026-01-05", stop=95, target=110, horizon_bars=5, bars=b, cost=0)
+    assert ev.entry_date == "2026-01-06" and ev.exit_reason == "stop" and ev.exit_price == 95
+
+
+def test_target_and_horizon_exits_with_costs():
+    b = bars([[100, 101, 99, 100], [100, 103, 99, 102], [102, 111, 101, 109]])
+    ev = evaluate_signal(direction=1, data_as_of="2026-01-05", stop=95, target=110, horizon_bars=5, bars=b, cost=0.001)
+    assert ev.exit_reason == "target" and ev.net_return == pytest.approx(0.099)
+    flat = bars([[100, 101, 99, 100]] + [[100, 101, 99, 101]] * 3)
+    ev2 = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=105, target=90, horizon_bars=3, bars=flat, cost=0)
+    assert ev2.exit_reason == "horizon" and ev2.net_return == pytest.approx(-0.01)
+    open_trade = evaluate_signal(direction=1, data_as_of="2026-01-05", stop=95, target=110, horizon_bars=10,
+                                 bars=flat, cost=0)
+    assert open_trade is None  # not enough bars yet: still open
+
+
+def test_no_bar_at_or_before_issue_is_used():
+    b = bars([[100, 200, 1, 100], [100, 101, 99, 100], [100, 101, 99, 101]])  # wild bar on the signal day
+    ev = evaluate_signal(direction=1, data_as_of="2026-01-05", stop=95, target=110, horizon_bars=2, bars=b, cost=0)
+    assert ev.exit_reason == "horizon"
+
+
+def test_gap_beyond_stop_invalidates_at_entry():
+    b = bars([[100, 101, 99, 100], [94, 95, 93, 94]])
+    ev = evaluate_signal(direction=1, data_as_of="2026-01-05", stop=95, target=110, horizon_bars=3, bars=b, cost=0.001)
+    assert ev.exit_reason == "invalid_at_entry" and ev.net_return == pytest.approx(-0.001)
+
+
+def test_metrics():
+    rows = [{"net_return": r, "r_multiple": r * 10} for r in (0.02, -0.01, 0.03, -0.01)]
+    m = metrics(rows, risk_pct=1)
+    assert m["n"] == 4 and m["win_rate"] == 0.5
+    assert m["profit_factor"] == pytest.approx(2.5)
+    assert m["max_drawdown"] > 0 and m["sample_note_fa"]
+    assert metrics([])["n"] == 0
+
+
+def test_calibration_needs_samples():
+    few = [{"confidence": 0.7, "net_return": 0.01}] * 10
+    assert calibration_table(few) is None
+    many = [{"confidence": 0.7, "net_return": 0.01 if i % 4 else -0.01} for i in range(40)]
+    table = calibration_table(many)
+    value, calibrated = make_calibrator(table)(0.7)
+    assert calibrated and value == pytest.approx(0.75)
+
+
+def test_exposure_nets_currencies():
+    ex = exposure([{"symbol": "EURUSD", "market": "forex", "direction": 1,
+                    "sizing": {"notional_account": 100_000, "risk_amount": 1000}},
+                   {"symbol": "GBPUSD", "market": "forex", "direction": 1,
+                    "sizing": {"notional_account": 50_000, "risk_amount": 1000}}], 100_000)
+    assert ex["currency_net"]["USD"] == -150_000 and ex["total_risk_pct"] == 2.0

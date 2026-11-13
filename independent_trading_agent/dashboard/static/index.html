@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>میز هوشمندی بازار</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<a class="skip" href="#view">رفتن به محتوای اصلی</a>
+<div class="shell">
+  <nav class="rail" aria-label="بخش‌ها">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true" width="28" height="28"><path d="M4 22 L11 14 L16 18 L23 8 L28 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23" cy="8" r="2.6" fill="currentColor"/></svg>
+      <span>میز هوشمندی بازار</span>
+    </div>
+    <a href="#/overview" data-route="overview">داشبورد اصلی</a>
+    <a href="#/forex" data-route="forex">ترمینال فارکس</a>
+    <a href="#/stocks" data-route="stocks">بازار سهام</a>
+    <a href="#/crypto" data-route="crypto">ترمینال رمزارز</a>
+    <a href="#/ai" data-route="ai">مرکز هوش مصنوعی</a>
+    <a href="#/risk" data-route="risk">مدیریت ریسک</a>
+    <a href="#/performance" data-route="performance">عملکرد تاریخی</a>
+    <a href="#/reports" data-route="reports">گزارش‌های روزانه</a>
+    <div class="rail-foot">
+      <button type="button" id="theme" class="ghost" aria-label="تغییر حالت روشن و تاریک">حالت تاریک</button>
+      <p class="fine">فقط تحلیل و شبیه‌سازی؛ هیچ سفارشی ثبت نمی‌شود.</p>
+    </div>
+  </nav>
+  <div class="stage">
+    <header class="top">
+      <form id="analyze-form" class="analyze" autocomplete="off">
+        <label for="symbols">تحلیل نماد</label>
+        <input id="symbols" name="symbols" dir="ltr" placeholder="EURUSD, AAPL, BTC-USD" aria-describedby="analyze-help">
+        <button type="submit">تحلیل کن</button>
+        <button type="button" id="scan-btn" class="ghost">پویش بازارها</button>
+        <span id="analyze-help" class="fine">چند نماد را با کاما جدا کنید.</span>
+      </form>
+      <div id="job" class="job" role="status" aria-live="polite"></div>
+    </header>
+    <section class="ribbon-wrap" aria-label="سشن‌های فارکس و وضعیت بازارها">
+      <div id="ribbon" class="ribbon"></div>
+      <ol id="markets" class="markets"></ol>
+    </section>
+    <main id="view" tabindex="-1"><p class="loading">در حال بارگذاری…</p></main>
+  </div>
+</div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

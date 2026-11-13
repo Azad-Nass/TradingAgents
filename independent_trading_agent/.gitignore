@@ -1,0 +1,12 @@
+# Local secrets and settings of the independent app
+.env
+config/settings.toml
+
+# Runtime output: database, caches, logs, reports
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+reports/*
+!reports/.gitkeep
+*.lock

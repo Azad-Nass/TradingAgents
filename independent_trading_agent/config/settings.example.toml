@@ -1,0 +1,47 @@
+# Independent Trading Agent: example settings.
+# Copy to config/settings.toml and edit. INDEPENDENT_AGENT_* environment
+# variables override anything here. API keys never go in this file: put them
+# in independent_trading_agent/.env.
+
+# Enabled markets. The processing and report order is always:
+# forex, nasdaq, nyse, crypto, tsx, tsxv.
+markets = ["forex", "nasdaq", "nyse", "crypto", "tsx"]
+
+# Symbols analysed in every daily run, besides the scan's picks (mode 1).
+watchlist = ["EURUSD", "GC=F"]
+
+# Scan limits
+max_symbols_per_market = 15
+max_total_symbols = 60
+top_n = 5            # opportunities listed per direction
+deep_top_k = 5       # candidates sent to the full agent analysis
+min_interest = 0.30  # weaker scan scores are not sent on, whatever the market's priority
+max_data_requests = 40
+
+# Timing
+timeframe = "1d"
+horizon_bars = 10
+report_timezone = "America/Toronto"
+run_time = "18:30"
+
+# Hypothetical portfolio (simulation only; no orders are ever placed)
+account_currency = "USD"
+portfolio_value = 100000.0
+risk_per_trade_pct = 1.0
+min_reward_risk = 1.5
+
+# Optional LLM help: news sentiment and a Persian narrative only
+llm_enabled = false
+max_llm_calls = 20
+
+# Optional deep analysis through the TradingAgents project next door
+tradingagents_enabled = false
+tradingagents_top_k = 1
+
+[universe]
+forex = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+nasdaq = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "AMD", "NFLX", "COST", "ADBE", "QQQ"]
+nyse = ["JPM", "V", "XOM", "JNJ", "WMT", "PG", "KO", "BAC", "DIS", "SPY"]
+crypto = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD"]
+tsx = ["RY.TO", "TD.TO", "SHOP.TO", "ENB.TO", "CNR.TO", "BNS.TO", "XIU.TO"]
+tsxv = []
