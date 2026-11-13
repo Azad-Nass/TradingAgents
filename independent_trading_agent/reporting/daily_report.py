@@ -269,9 +269,14 @@ def _analysis_card(a: dict, digits: int) -> str:
     if d.get("agreeing") or d.get("disagreeing"):
         out.append(f'<p>موافق: {e("، ".join(d.get("agreeing", [])) or "—")} | مخالف: {e("، ".join(d.get("disagreeing", [])) or "—")}</p>')
     if plan and d.get("direction"):
-        out.append(_table(["جهت", "محدوده ورود فرضی", "حد ضرر", "اهداف", "R:R تا هدف اول", "R:R مؤثر", "افق"], [[
+        is_limit = plan.get("entry_type") == "limit"
+        entry_cell = (f'شرطی (Limit) در <span class="ltr">{num(plan["reference_price"], digits)}</span>'
+                      f'<div class="muted">بازار: <span class="ltr">{num(plan.get("market_price"), digits)}</span></div>'
+                      if is_limit else
+                      f'بازار: <span class="ltr">{num(plan["entry_low"], digits)} – {num(plan["entry_high"], digits)}</span>')
+        out.append(_table(["جهت", "ورود فرضی", "حد ضرر", "اهداف", "R:R تا هدف اول", "R:R مؤثر", "افق"], [[
             "خرید (Long)" if plan["direction"] > 0 else "فروش (Short)",
-            f'<span class="ltr">{num(plan["entry_low"], digits)} – {num(plan["entry_high"], digits)}</span>',
+            entry_cell,
             f'<span class="ltr">{num(plan["stop"], digits)}</span>',
             f'<span class="ltr">{" / ".join(num(t, digits) for t in plan["targets"])}</span>',
             num(plan["reward_risk"], 2), num(plan["effective_reward_risk"], 2), f'{plan["horizon_bars"]} کندل']]))
@@ -309,7 +314,13 @@ def _section_c(repo, settings, run: dict) -> str:
     sigs = repo.signals(mode="live", limit=40)
     rows = []
     for s in sigs:
-        res = "باز" if s["status"] == "open" else f'{e(s.get("exit_reason"))} · <span class="ltr">{pct(s.get("net_return"), 2)}</span> · R={num(s.get("r_multiple"), 2)}'
+        if s["status"] == "open":
+            res = "در انتظار پر شدن (Limit)" if s.get("entry_type") == "limit" else "باز"
+        elif s["status"] == "not_filled":
+            res = "پر نشد (قیمت به ورود شرطی نرسید)"
+        else:
+            res = (f'{e(s.get("exit_reason"))} · <span class="ltr">{pct(s.get("net_return"), 2)}</span> · '
+                   f'R={num(s.get("r_multiple"), 2)}')
         rows.append([e(s["symbol"]), _market_name(s["market"]), _badge(s["label"]),
                      f'<span class="ltr">{e(s["issued_utc"][:16])}</span>', f'<span class="ltr">{num(s["ref_price"], 5)}</span>',
                      f'<span class="ltr">{num(s["stop"], 5)}</span>', res])
@@ -334,6 +345,9 @@ def _section_c(repo, settings, run: dict) -> str:
             [_market_name(k), str(v["n"]), f'{v["win_rate"]:.0%}', pct(v["avg_return"], 2)]
             for k, v in sorted(by_market.items(), key=lambda kv: ORDER.index(kv[0]) if kv[0] in ORDER else 99)]))
     bt = repo.evaluations("backtest")
+    unfilled = sum(1 for x in evals if x.get("exit_reason") == "not_filled")
+    if unfilled:
+        out.append(f'<p class="muted">{unfilled} سیگنال شرطی (Limit) پر نشد و در معیارهای بازده حساب نشده است.</p>')
     if bt:
         mb = metrics(bt, settings.risk_per_trade_pct)
         out.append(f'<p class="muted">بک‌تست (جدا از عملکرد زنده؛ فقط تکنیکال، دارای سوگیری بقا): '

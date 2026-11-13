@@ -243,7 +243,9 @@ function detailHtml(a) {
   if (p && d.direction) {
     html += `<div class="panel" style="margin-top:12px"><h3 style="margin-top:0">سناریوی فرضی (شبیه‌سازی)</h3>
       <dl class="facts"><dt>جهت</dt><dd>${p.direction > 0 ? "خرید (Long)" : "فروش (Short)"}</dd>
-      <dt>محدوده ورود</dt><dd><span class="ltr">${price(p.entry_low, a.market)} – ${price(p.entry_high, a.market)}</span></dd>
+      <dt>ورود</dt><dd>${p.entry_type === "limit"
+        ? `شرطی (Limit) در <span class="ltr">${price(p.reference_price, a.market)}</span> <span class="fine">— بازار <span class="ltr">${price(p.market_price, a.market)}</span>؛ اگر تا پایان افق نرسد، انجام‌نشده حساب می‌شود</span>`
+        : `بازار: <span class="ltr">${price(p.entry_low, a.market)} – ${price(p.entry_high, a.market)}</span>`}</dd>
       <dt>حد ضرر</dt><dd><span class="ltr">${price(p.stop, a.market)}</span></dd>
       <dt>اهداف</dt><dd><span class="ltr">${p.targets.map(t => price(t, a.market)).join(" / ")}</span></dd>
       <dt>ریسک به بازده</dt><dd>تا هدف اول ${num(p.reward_risk)}، مؤثر ${num(p.effective_reward_risk)}</dd>
@@ -368,7 +370,7 @@ const views = {
       <h2>به تفکیک نوع سیگنال</h2><div class="panel"><table><thead><tr><th>سیگنال</th><th class="n">تعداد</th><th class="n">Win Rate</th><th class="n">میانگین بازده</th></tr></thead><tbody>
       ${Object.entries(p.by_label).map(([k, v]) => `<tr><td>${pill(k)}</td><td class="n">${v.n}</td><td class="n">${pct(v.win_rate, 0, false)}</td><td class="n">${pct(v.avg_return, 2)}</td></tr>`).join("")}</tbody></table></div>`}
       <h2>سیگنال‌ها</h2><div class="panel">${p.signals.length ? `<div class="table-wrap"><table><thead><tr><th>نماد</th><th>سیگنال</th><th>صدور</th><th>وضعیت</th><th class="n">بازده خالص</th><th class="n">R</th></tr></thead><tbody>
-      ${p.signals.slice(0, 80).map(s => `<tr><td><b>${esc(s.symbol)}</b></td><td>${pill(s.label)}</td><td class="fine"><span class="ltr">${esc(when(s.issued_utc))}</span></td><td>${s.status === "open" ? "باز" : esc(s.exit_reason || "بسته")}</td><td class="n">${s.net_return == null ? "—" : pct(s.net_return, 2)}</td><td class="n">${s.r_multiple == null ? "—" : num(s.r_multiple)}</td></tr>`).join("")}</tbody></table></div>` : empty("سیگنالی ثبت نشده است.")}</div>`;
+      ${p.signals.slice(0, 80).map(s => `<tr><td><b>${esc(s.symbol)}</b></td><td>${pill(s.label)}</td><td class="fine"><span class="ltr">${esc(when(s.issued_utc))}</span></td><td>${s.status === "open" ? (s.entry_type === "limit" ? "در انتظار Limit" : "باز") : s.status === "not_filled" ? "پر نشد" : esc(s.exit_reason || "بسته")}</td><td class="n">${s.net_return == null ? "—" : pct(s.net_return, 2)}</td><td class="n">${s.r_multiple == null ? "—" : num(s.r_multiple)}</td></tr>`).join("")}</tbody></table></div>` : empty("سیگنالی ثبت نشده است.")}</div>`;
     view.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { state.perfMode = b.dataset.mode; views.performance(); }));
     const eq = $("#eq");
     if (eq && m.equity_curve) {

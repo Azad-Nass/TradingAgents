@@ -149,3 +149,64 @@ def test_gold_macro_reads_real_yields():
                           "synthetic", macro=macro)
     op = fundamental_analyst.analyze_macro(ctx)
     assert op.score < 0 and "TIPS" in op.evidence[0].text_fa  # rising real yields weigh on gold
+
+
+def test_short_limit_fills_on_the_rally_then_hits_target():
+    # signal day, rally through 105 (fill), then a fall to the target
+    b = bars([[100, 101, 99, 100], [101, 106, 100, 104], [104, 104.5, 96, 97], [97, 98, 94, 95]])
+    ev = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=108, target=99, horizon_bars=5, bars=b,
+                         cost=0, limit_price=105)
+    assert ev.entry_price == 105 and ev.entry_date == "2026-01-06"
+    assert ev.exit_reason == "target" and ev.exit_price == 99
+
+
+def test_limit_gap_fills_at_the_better_open():
+    b = bars([[100, 101, 99, 100], [107, 107.5, 104, 105]])
+    ev = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=110, target=99, horizon_bars=3, bars=b,
+                         cost=0, limit_price=105)
+    assert ev is None  # filled at 107 but the horizon is not over yet
+    more = bars([[100, 101, 99, 100], [107, 107.5, 104, 105], [105, 106, 104, 105], [105, 106, 104, 104]])
+    ev = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=110, target=99, horizon_bars=3, bars=more,
+                         cost=0, limit_price=105)
+    assert ev.entry_price == 107 and ev.exit_reason == "horizon"
+
+
+def test_limit_fill_bar_counts_only_the_stop():
+    # the fill bar also touches the target: ignored (order of moves inside the bar is unknown)
+    b = bars([[100, 101, 99, 100], [101, 106, 98, 99], [99, 100, 98.5, 99.5], [99.5, 100, 99, 99.6]])
+    ev = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=108, target=98.5, horizon_bars=3, bars=b,
+                         cost=0, limit_price=105)
+    assert ev.entry_date == "2026-01-06" and ev.exit_reason == "target" and ev.exit_date == "2026-01-07"
+
+
+def test_unfilled_limit_is_not_a_trade():
+    b = bars([[100, 101, 99, 100]] + [[100, 102, 99, 101]] * 3)
+    pending = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=110, target=95, horizon_bars=5, bars=b,
+                              cost=0.001, limit_price=105)
+    assert pending is None
+    done = evaluate_signal(direction=-1, data_as_of="2026-01-05", stop=110, target=95, horizon_bars=3, bars=b,
+                           cost=0.001, limit_price=105)
+    assert done.exit_reason == "not_filled" and done.net_return == 0
+    m = metrics([done.to_dict(), {"net_return": 0.02, "r_multiple": 1.0, "exit_reason": "target"}])
+    assert m["n"] == 1  # the unfilled limit is left out
+
+
+def test_trader_turns_a_better_entry_into_a_limit(now):
+    from independent_trading_agent.agents import trader
+    from independent_trading_agent.agents.base import AnalysisContext
+    from independent_trading_agent.analysis.prepare import prepare
+    from independent_trading_agent.core.markets import MARKETS
+
+    from .conftest import synthetic_bars
+
+    prep = prepare(synthetic_bars(seed=11), "nasdaq", now, min_bars=200, max_stale_sessions=3)
+    ctx = AnalysisContext("UPP", "UPP", "UPP", MARKETS["nasdaq"], prep.bars, prep.ind, prep.snap, prep.levels,
+                          prep.quality, now, "synthetic")
+    close, atr = prep.snap["close"], prep.snap["atr14"]
+    short = trader.make_plan(ctx, -1, 10, entry_hint=close + 1.0 * atr)
+    assert short.entry_type == "limit" and short.limit_price == pytest.approx(close + atr)
+    assert short.stop > short.limit_price > short.targets[0]
+    worse = trader.make_plan(ctx, -1, 10, entry_hint=close - 1.0 * atr)   # selling below the market
+    far = trader.make_plan(ctx, -1, 10, entry_hint=close + 5 * atr)       # too far to expect a fill
+    assert worse.entry_type == "market" and far.entry_type == "market"
+    assert worse.reference_price == close

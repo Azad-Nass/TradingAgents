@@ -1,8 +1,12 @@
 """Signal evaluation and performance metrics.
 
 Rules, fixed in advance so nothing is fitted after the fact:
-- Entry is the open of the first bar dated after the signal's data bar.
+- Market entry is the open of the first bar dated after the signal's data bar.
   Bars at or before ``data_as_of`` are never used.
+- Limit entry fills on the first later bar that trades through the limit (at
+  the limit, or at the open when it gaps past it in the trade's favour); on
+  that bar only the stop counts. Unfilled within ``horizon_bars``: the
+  outcome is ``not_filled`` and it stays out of every return metric.
 - Long: a bar whose low reaches the stop exits at the stop (or at the open if
   it gapped through); else a high reaching target 1 exits there. If both
   happen in one bar the stop is assumed first. Shorts mirror this.
@@ -35,55 +39,80 @@ class Evaluation:
 
 
 def evaluate_signal(*, direction: int, data_as_of: str, stop: float, target: float, horizon_bars: int,
-                    bars: pd.DataFrame, cost: float) -> Evaluation | None:
-    """The outcome once ``horizon_bars`` bars after the signal exist (or the stop/target hit); else None."""
+                    bars: pd.DataFrame, cost: float, limit_price: float | None = None) -> Evaluation | None:
+    """The outcome once it is known (stop/target hit, horizon over, or a limit left unfilled); else None."""
     if direction == 0:
         return None
     after = bars[bars.index.normalize() > pd.Timestamp(data_as_of).normalize()]
     if after.empty:
         return None
-    entry_bar = after.iloc[0]
-    entry = float(entry_bar["open"])
+    first = after.index[0].date().isoformat()
+
+    if limit_price is None:
+        start, entry = 0, float(after.iloc[0]["open"])
+    else:
+        fill = None
+        for i in range(min(horizon_bars, len(after))):
+            bar = after.iloc[i]
+            o, h, low = float(bar["open"]), float(bar["high"]), float(bar["low"])
+            if direction < 0 and h >= limit_price:
+                fill = (i, max(o, limit_price))   # a sell limit fills at the limit, or better on a gap up
+                break
+            if direction > 0 and low <= limit_price:
+                fill = (i, min(o, limit_price))   # a buy limit fills at the limit, or better on a gap down
+                break
+        if fill is None:
+            if len(after) < horizon_bars:
+                return None                      # may still fill
+            last = after.index[horizon_bars - 1].date().isoformat()
+            return Evaluation(first, round(limit_price, 6), last, round(limit_price, 6), "not_filled", 0, 0.0, 0.0,
+                              0.0, 0.0)
+        start, entry = fill
+
     risk = abs(entry - stop)
     if risk <= 0 or entry <= 0:
         return None
-    first = after.index[0].date().isoformat()
+    entry_day = after.index[start].date().isoformat()
     if (direction > 0 and not stop < entry < target) or (direction < 0 and not target < entry < stop):
-        # The market opened beyond the stop or the target: the plan no longer applies; costs are still paid.
-        return Evaluation(first, round(entry, 6), first, round(entry, 6), "invalid_at_entry", 0, 0.0,
+        # Filled beyond the stop or the target: the plan no longer applies; costs are still paid.
+        return Evaluation(entry_day, round(entry, 6), entry_day, round(entry, 6), "invalid_at_entry", 0, 0.0,
                           round(cost, 6), round(-cost, 6), round(-cost * entry / risk, 3))
-    exit_price, reason, held = None, None, 0
-    for i, (ts, bar) in enumerate(after.iloc[:horizon_bars].iterrows()):
+
+    exit_price, reason, held, exit_ts = None, None, 0, None
+    window = after.iloc[start:start + horizon_bars]
+    limit_fill_bar = limit_price is not None
+    for i, (ts, bar) in enumerate(window.iterrows()):
         held = i + 1
         o, h, low = float(bar["open"]), float(bar["high"]), float(bar["low"])
+        gap_ok = i > 0  # on the entry bar the open is (or precedes) the entry, so no gap fill
         if direction > 0:
             if low <= stop:
-                exit_price, reason = (min(o, stop) if i > 0 else stop), "stop"
-            elif h >= target:
-                exit_price, reason = (max(o, target) if i > 0 else target), "target"
+                exit_price, reason = (min(o, stop) if gap_ok else stop), "stop"
+            elif h >= target and not (i == 0 and limit_fill_bar):  # a limit's fill bar: only the stop counts
+                exit_price, reason = (max(o, target) if gap_ok else target), "target"
         else:
             if h >= stop:
-                exit_price, reason = (max(o, stop) if i > 0 else stop), "stop"
-            elif low <= target:
-                exit_price, reason = (min(o, target) if i > 0 else target), "target"
+                exit_price, reason = (max(o, stop) if gap_ok else stop), "stop"
+            elif low <= target and not (i == 0 and limit_fill_bar):
+                exit_price, reason = (min(o, target) if gap_ok else target), "target"
         if reason:
             exit_ts = ts
             break
     else:
-        if len(after) < horizon_bars:
+        if len(window) < horizon_bars:
             return None  # still open
-        exit_ts = after.index[horizon_bars - 1]
-        exit_price, reason, held = float(after["close"].iloc[horizon_bars - 1]), "horizon", horizon_bars
+        exit_ts = window.index[horizon_bars - 1]
+        exit_price, reason, held = float(window["close"].iloc[horizon_bars - 1]), "horizon", horizon_bars
     gross = direction * (exit_price - entry) / entry
     net = gross - cost
     r_mult = net * entry / risk
-    return Evaluation(after.index[0].date().isoformat(), round(entry, 6), exit_ts.date().isoformat(),
-                      round(exit_price, 6), reason, held, round(gross, 6), round(cost, 6), round(net, 6),
-                      round(r_mult, 3))
+    return Evaluation(entry_day, round(entry, 6), exit_ts.date().isoformat(), round(exit_price, 6), reason, held,
+                      round(gross, 6), round(cost, 6), round(net, 6), round(r_mult, 3))
 
 
 def metrics(rows: list[dict], risk_pct: float = 1.0) -> dict:
     """Win rate, profit factor, Sharpe/Sortino (per trade, not annualised), drawdown, by R-risk equity."""
+    rows = [r for r in rows if r.get("exit_reason") != "not_filled"]  # no trade happened
     rets = [r["net_return"] for r in rows if r.get("net_return") is not None]
     rs = [r["r_multiple"] for r in rows if r.get("r_multiple") is not None]
     n = len(rets)
@@ -124,7 +153,8 @@ def grouped_metrics(rows: list[dict], key: str, risk_pct: float = 1.0) -> dict[s
 
 def calibration_table(rows: list[dict], min_samples: int = 30) -> list[tuple[float, float, float, int]] | None:
     """(low, high, hit_rate, n) per confidence bucket once enough signals are evaluated."""
-    usable = [r for r in rows if r.get("confidence") is not None and r.get("net_return") is not None]
+    usable = [r for r in rows if r.get("confidence") is not None and r.get("net_return") is not None
+              and r.get("exit_reason") != "not_filled"]
     if len(usable) < min_samples:
         return None
     buckets = [(0.0, 0.45), (0.45, 0.6), (0.6, 0.75), (0.75, 1.01)]

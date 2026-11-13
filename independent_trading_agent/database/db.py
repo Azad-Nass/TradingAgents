@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS ita_signals (
     symbol TEXT NOT NULL, yahoo TEXT, market TEXT NOT NULL, issued_utc TEXT NOT NULL, data_as_of TEXT NOT NULL,
     ref_price REAL, direction INTEGER NOT NULL, label TEXT NOT NULL, entry_low REAL, entry_high REAL,
     stop REAL, targets_json TEXT, horizon_bars INTEGER, confidence REAL, evidence_json TEXT,
-    sizing_json TEXT, config_json TEXT, status TEXT NOT NULL DEFAULT 'open'
+    sizing_json TEXT, config_json TEXT, status TEXT NOT NULL DEFAULT 'open',
+    entry_type TEXT NOT NULL DEFAULT 'market', limit_price REAL
 );
 CREATE INDEX IF NOT EXISTS ita_signals_status ON ita_signals(mode, status);
 CREATE TABLE IF NOT EXISTS ita_evaluations (
@@ -88,6 +89,10 @@ class Repository:
             cols = {r[1] for r in con.execute("PRAGMA table_info(ita_analyses)")}
             if "ta_json" not in cols:  # databases created before TradingAgents became the engine
                 con.execute("ALTER TABLE ita_analyses ADD COLUMN ta_json TEXT")
+            sig_cols = {r[1] for r in con.execute("PRAGMA table_info(ita_signals)")}
+            if "entry_type" not in sig_cols:  # databases created before limit entries
+                con.execute("ALTER TABLE ita_signals ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'market'")
+                con.execute("ALTER TABLE ita_signals ADD COLUMN limit_price REAL")
 
     @contextmanager
     def connect(self):

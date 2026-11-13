@@ -167,7 +167,8 @@ class Engine:
         direction = chief.TA_DIRECTION.get(ta_result.get("rating"), 0) if ta_result.get("ok") else 0
         numbers = ta_result.get("numbers") or {}
         plan = trader.make_plan(ctx, direction, s.horizon_bars, stop_hint=numbers.get("stop_loss"),
-                                target_hint=numbers.get("price_target")) if direction else None
+                                target_hint=numbers.get("price_target"),
+                                entry_hint=numbers.get("entry_price")) if direction else None
         risk = risk_officer.assess(ctx, plan, s, self.fx) if plan else None
         decision = chief.decide_tradingagents(ta_result, supplements, prep.quality.ok, risk, calibrate)
         plan_d, risk_d = (plan.to_dict() if plan else None), (risk.to_dict() if risk else None)
@@ -210,6 +211,7 @@ class Engine:
                 "ref_price": plan.reference_price, "direction": decision.direction, "label": decision.label,
                 "entry_low": plan.entry_low, "entry_high": plan.entry_high, "stop": plan.stop,
                 "targets_json": plan.targets, "horizon_bars": plan.horizon_bars, "confidence": decision.confidence,
+                "entry_type": plan.entry_type, "limit_price": plan.limit_price,
                 "evidence_json": {"reasons": decision.reasons_fa, "agreeing": decision.agreeing,
                                   "disagreeing": decision.disagreeing},
                 "sizing_json": (risk_d or {}).get("sizing"), "config_json": {"fingerprint": settings_fingerprint(s),
@@ -257,9 +259,10 @@ class Engine:
                                    slippage_bps=s.slippage_bps, metal_spread_pips=s.metal_spread_pips)
             ev = evaluate_signal(direction=r["direction"], data_as_of=r["data_as_of"], stop=r["stop"],
                                  target=r["targets_json"][0], horizon_bars=r["horizon_bars"], bars=prep.bars,
-                                 cost=cost)
+                                 cost=cost, limit_price=r.get("limit_price"))
             if ev:
-                self.repo.add_evaluation({"signal_id": r["id"], **ev.to_dict()})
+                self.repo.add_evaluation({"signal_id": r["id"], **ev.to_dict()},
+                                         status="not_filled" if ev.exit_reason == "not_filled" else "closed")
                 done += 1
         return {"evaluated": done, "still_open": len(open_rows) - done}
 

@@ -196,3 +196,22 @@ def test_backtest_replay_has_no_look_ahead(settings):
     early_a = [(r["date"], r["label"], r["score"]) for r in a if r["date"] < cutoff]
     early_b = [(r["date"], r["label"], r["score"]) for r in b if r["date"] < cutoff]
     assert early_a and early_a == early_b
+
+
+def test_tradingagents_entry_becomes_a_limit_signal(settings, now, monkeypatch):
+    up = UP["UPP"]
+    from independent_trading_agent.analysis.prepare import prepare
+    snap = prepare(up, "nasdaq", now, min_bars=200, max_stale_sessions=3).snap
+
+    def ta_with_entry(yahoo, trade_date, **kwargs):
+        out = fake_ta(yahoo, trade_date, **kwargs)
+        out["numbers"]["entry_price"] = round(snap["close"] - 0.8 * snap["atr14"], 4)  # buy the dip
+        return out
+
+    monkeypatch.setattr(tradingagents_adapter, "run_deep_analysis", ta_with_entry)
+    eng = engine(settings, now, UP)
+    row = eng.analyze(["UPP"], "run1")[0]
+    assert row["plan_json"]["entry_type"] == "limit"
+    if row["label"] != "NO TRADE":
+        sig = eng.repo.signals(status="open")[0]
+        assert sig["entry_type"] == "limit" and sig["limit_price"] == pytest.approx(snap["close"] - 0.8 * snap["atr14"])
