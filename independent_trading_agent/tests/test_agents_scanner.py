@@ -28,7 +28,7 @@ def test_weak_evidence_is_hold():
 
 def test_serious_conflict_is_no_trade():
     # A clear net direction (+0.42) but 48% of the evidence weight points the other way.
-    ops = [op("technical_analyst", 1.0, 1.0), op("fundamental_analyst", -0.2, 1.0), op("macro_analyst", -0.2, 1.0),
+    ops = [op("technical_analyst", 1.0, 1.0), op("macro_analyst", -0.2, 1.0), op("stock_market_analyst", -0.2, 1.0),
            op("forex_analyst", -0.2, 1.0)]
     score, conflict = chief.combine(ops)
     assert score > chief.HOLD_BAND and conflict >= chief.CONFLICT_LIMIT
@@ -48,7 +48,7 @@ def test_risk_veto_is_no_trade_and_strong_needs_clean_evidence():
 
 def test_not_applicable_and_zero_confidence_opinions_are_ignored():
     ops = [op("technical_analyst", -0.5, 0.8),
-           AgentOpinion("fundamental_analyst", "f", False, 0.0, 0.0),
+           AgentOpinion("macro_analyst", "f", False, 0.0, 0.0),
            AgentOpinion("sentiment_analyst", "s", True, 0.9, 0.0)]
     score, conflict = chief.combine(ops)
     assert score == -0.5 and conflict == 0

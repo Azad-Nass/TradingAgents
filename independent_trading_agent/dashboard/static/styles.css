@@ -155,6 +155,11 @@ tbody tr.pick:hover, tbody tr.pick[aria-selected="true"] { background: var(--pan
 .stance .bar .zero { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
 .evidence { margin: 4px 0 10px; padding-inline-start: 18px; font-size: .88rem; color: var(--ink-2); }
 .evidence .src { color: var(--muted); font-size: .78rem; }
+.ta-text { font-size: .88rem; color: var(--ink-2); max-height: 420px; overflow: auto;
+  padding: 6px 0 10px; }
+details summary { cursor: pointer; font-weight: 600; margin: 6px 0; }
+.debate .evidence li { max-height: 320px; overflow: auto; }
+.ta-text p, .debate .evidence li p { margin: 0 0 8px; }
 
 .chart { width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }

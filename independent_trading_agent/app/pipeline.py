@@ -1,9 +1,12 @@
 """The engine: mode 1 (analyse chosen symbols), mode 2 (scan), evaluation and the daily run.
 
-Decision flow per symbol: data + quality check -> analysts (technical,
-fundamental/macro, news, sentiment, market specialist, optional TradingAgents)
--> bull/bear researchers -> combined direction -> trader plan -> risk review
--> chief decision -> stored with its evidence, time and settings.
+Decision flow per symbol (TradingAgents is the analysis engine):
+price data + quality check -> TradingAgents multi-agent LLM analysis (its
+analysts, bull/bear debate, trader, risk team and portfolio manager)
+-> FRED macro view and Gemini sentiment of TradingAgents' news report
+-> plan (TradingAgents' stop/target when sane, else ATR) -> risk officer
+-> decision (TradingAgents' rating, stopped by bad data or a risk veto,
+weakened by strong macro/sentiment opposition) -> stored with evidence.
 """
 from __future__ import annotations
 
@@ -13,39 +16,22 @@ import logging
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from ..agents import (
-    chief,
-    fundamental_analyst,
-    narrative,
-    news_analyst,
-    researchers,
-    risk_officer,
-    technical_analyst,
-    trader,
-)
+from ..agents import chief, macro_analyst, narrative, risk_officer, sentiment_analyst, trader
 from ..agents.base import AnalysisContext
 from ..analysis.prepare import prepare
 from ..config.settings import Settings
-from ..core.data_provider import BudgetExceeded, RequestBudget, YahooProvider
+from ..core.data_provider import RequestBudget, YahooProvider
 from ..core.markets import MARKETS, display_symbol, forex_pair, infer_market, to_yahoo
 from ..core.runtime import redact
-from ..crypto import analyst as crypto_analyst
 from ..database.db import Repository
-from ..forex import analyst as forex_analyst
 from ..integrations import fred, tradingagents_adapter
-from ..integrations.llm_client import LLMClient, classify_headlines, persian_narrative
+from ..integrations.llm_client import LLMClient
 from ..market_scanner.scanner import ScanResult, scan
-from ..nasdaq import analyst as stock_analyst
 from ..performance.evaluate import calibration_table, evaluate_signal, make_calibrator
 from ..risk_management.sizing import round_trip_cost
 
 logger = logging.getLogger(__name__)
-UTC = UTC
-ENGINE_VERSION = "rule-based-agents/0.1"
-MIN_NEWS_RELEVANCE = 0.3
-NEWS_QUERIES = {"XAUUSD": "gold price", "XAGUSD": "silver price", "GC=F": "gold price", "SI=F": "silver price", "CL=F": "crude oil price", "BZ=F": "brent oil",
-                "NG=F": "natural gas price", "HG=F": "copper price"}
-FOREX_PEERS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]
+ENGINE_VERSION = "tradingagents-primary/0.2"
 
 
 def settings_fingerprint(settings: Settings) -> str:
@@ -98,50 +84,32 @@ class Engine:
     def _calibrator(self):
         return make_calibrator(calibration_table(self.repo.evaluations("live")))
 
-    def _news(self, sym: str, market_key: str, fundamentals: dict | None) -> tuple[list[dict], str]:
-        query = NEWS_QUERIES.get(sym.upper().replace("/", "")) or NEWS_QUERIES.get(to_yahoo(sym, market_key)) or (
-            display_symbol(sym, market_key).replace("/", "") if market_key == "forex" else sym)
-        try:
-            items = self.provider.news(query, 12)
-        except BudgetExceeded as exc:
-            self._error(f"news for {sym} skipped: {exc}")
-            return [], "none"
-        except Exception as exc:
-            self._error(f"news for {sym} unavailable: {type(exc).__name__}: {exc}")
-            return [], "none"
-        items = news_analyst.recent_news(items, self.now, self.settings.news_max_age_days)
-        if not items:
-            return [], "none"
-        subject = (fundamentals or {}).get("longName") or display_symbol(sym, market_key)
-        rated = classify_headlines(self.llm, subject, [i["title"] for i in items]) if self.llm else None
-        if rated:
-            for r in rated:
-                items[r["i"]]["sentiment"] = r["sentiment"]
-                items[r["i"]]["relevance"] = r["relevance"]
-            # The model judged these unrelated to the instrument: keep them out of the analysis.
-            relevant = [i for i in items if (i.get("relevance") or 0) >= MIN_NEWS_RELEVANCE]
-            if len(relevant) < len(items):
-                logger.info("%s: %d unrelated headlines dropped", sym, len(items) - len(relevant))
-            return relevant, "llm"
-        for item in items:
-            item["sentiment"] = float(news_analyst.lexicon_score(item["title"]))
-            item["relevance"] = 1.0
-        return items, "lexicon"
+    def _tradingagents(self, sym: str, yahoo: str, market_key: str, prep) -> dict:
+        s = self.settings
+        if not s.tradingagents_enabled:
+            return {"ok": False, "error": "TradingAgents در تنظیمات غیرفعال است"}
+        if not prep.quality.ok:
+            return {"ok": False, "error": "کیفیت داده قیمت کافی نیست؛ TradingAgents اجرا نشد"}
+        if self.ta_runs >= s.tradingagents_max_runs:
+            return {"ok": False, "error": f"سقف {s.tradingagents_max_runs} تحلیل TradingAgents در این اجرا پر شد"}
+        self.ta_runs += 1
+        analysts = s.tradingagents_analysts_stock if MARKETS[market_key].asset_class == "stock" \
+            else s.tradingagents_analysts
+        result = tradingagents_adapter.run_deep_analysis(
+            yahoo, prep.snap["date"], asset_type="crypto" if market_key == "crypto" else "stock", analysts=analysts,
+            timeout=s.tradingagents_timeout_seconds, data_dir=s.data_dir, language=s.tradingagents_language)
+        if not result.get("ok"):
+            self._error(f"TradingAgents for {sym}: {str(result.get('error', ''))[:300]}")
+        return result
 
     # -------------------------------------------------------------- mode 1 ---
     def analyze(self, symbols: list[str], run_id: str | None = None, *, scan_info: dict | None = None,
-                deep_symbols: set[str] | None = None, market_hint: dict | None = None) -> list[dict]:
+                market_hint: dict | None = None) -> list[dict]:
         s = self.settings
         market_of = {sym: (market_hint or {}).get(sym) or infer_market(sym) for sym in symbols}
         open_signals = self._open_signals()
         needed = {to_yahoo(sym, market_of[sym]) for sym in symbols}
-        for sym in symbols:
-            bench = MARKETS[market_of[sym]].benchmark
-            if bench:
-                needed.add(bench)
-        if any(m == "forex" for m in market_of.values()):
-            needed.update(to_yahoo(p, "forex") for p in FOREX_PEERS)
-        needed.update(o["yahoo"] for o in open_signals if o.get("yahoo"))
+        needed.update(o["yahoo"] for o in open_signals if o.get("yahoo"))  # for the risk officer's correlations
         try:
             data = self.provider.history(sorted(needed), s.lookback_period, s.timeframe)
         except Exception as exc:
@@ -157,13 +125,13 @@ class Engine:
         for sym in symbols:
             try:
                 results.append(self._analyze_one(sym, market_of[sym], prepared, open_signals, calibrate, run_id,
-                                                 (scan_info or {}).get(sym), deep_symbols))
+                                                 (scan_info or {}).get(sym)))
             except Exception as exc:  # one bad symbol must not stop the run
                 logger.exception("analysis of %s failed", sym)
                 self._error(f"analysis of {sym} failed: {type(exc).__name__}: {exc}")
         return results
 
-    def _analyze_one(self, sym, market_key, prepared, open_signals, calibrate, run_id, scan_row, deep_symbols):
+    def _analyze_one(self, sym, market_key, prepared, open_signals, calibrate, run_id, scan_row):
         s = self.settings
         m = MARKETS[market_key]
         yahoo = to_yahoo(sym, market_key)
@@ -173,7 +141,7 @@ class Engine:
             prep = prepare(None, market_key, self.now, min_bars=s.min_bars, max_stale_sessions=s.max_stale_sessions)
         if prep.snap is None:
             decision = chief.Decision("NO TRADE", 0, 0.0, 0.0, 0.0, False,
-                                      ["داده کافی برای تحلیل وجود ندارد: " + "؛ ".join(prep.quality.issues)])
+                                      ["داده قیمت کافی برای تحلیل وجود ندارد: " + "؛ ".join(prep.quality.issues)])
             row = {"run_id": run_id, "symbol": sym, "display": disp, "yahoo": yahoo, "market": market_key,
                    "data_as_of": prep.quality.last_bar, "data_source": self.provider.name,
                    "quality_json": prep.quality.to_dict(), "opinions_json": [], "debate_json": {},
@@ -183,52 +151,25 @@ class Engine:
             row["id"] = self.repo.add_analysis(row)
             return row
 
-        fundamentals = None
-        if m.asset_class == "stock":
-            try:
-                fundamentals = self.provider.fundamentals(yahoo)
-            except Exception as exc:
-                self._error(f"fundamentals for {sym} unavailable: {type(exc).__name__}: {exc}")
-        news, method = self._news(sym, market_key, fundamentals)
         macro = None
         if market_key == "forex":
             base, quote = forex_pair(sym)
             macro = (fred.gold_macro(self.now.date()) if (base, quote) == ("XAU", "USD")
                      else fred.forex_macro(base, quote, self.now.date()))
         peers = {y: p.bars for y, p in prepared.items() if p.bars is not None and not p.bars.empty}
-        bench = prepared.get(m.benchmark).bars if m.benchmark and prepared.get(m.benchmark) else None
-
         ctx = AnalysisContext(sym, disp, yahoo, m, prep.bars, prep.ind, prep.snap, prep.levels, prep.quality,
-                              self.now, self.provider.name, fundamentals, news, macro, bench, peers, open_signals,
-                              news_sentiment_method=method)
-        opinions = [
-            technical_analyst.analyze(ctx),
-            fundamental_analyst.analyze_company(ctx),
-            fundamental_analyst.analyze_macro(ctx),
-            news_analyst.analyze_news(ctx),
-            news_analyst.analyze_sentiment(ctx),
-            forex_analyst.analyze(ctx),
-            stock_analyst.analyze(ctx, s.min_dollar_volume_tsxv if market_key == "tsxv" else s.min_dollar_volume,
-                                  s.horizon_bars),
-            crypto_analyst.analyze(ctx),
-        ]
-        ta_result = None
-        if (s.tradingagents_enabled and deep_symbols is not None and sym in deep_symbols
-                and self.ta_runs < s.tradingagents_top_k and prep.quality.ok):
-            self.ta_runs += 1
-            ta_result = tradingagents_adapter.run_deep_analysis(
-                yahoo, prep.snap["date"], asset_type="crypto" if market_key == "crypto" else "stock",
-                analysts=s.tradingagents_analysts, timeout=s.tradingagents_timeout_seconds, data_dir=s.data_dir)
-            if not ta_result.get("ok"):
-                self._error(f"TradingAgents for {sym}: {ta_result.get('error', '')[:300]}")
-            opinions.append(tradingagents_adapter.to_opinion(ta_result))
+                              self.now, self.provider.name, macro=macro, peers=peers, open_signals=open_signals)
 
-        bull, bear = researchers.build_case("bull", opinions), researchers.build_case("bear", opinions)
-        score, _ = chief.combine(opinions)
-        direction = 1 if score > 0 else -1 if score < 0 else 0
-        plan = trader.make_plan(ctx, direction, s.horizon_bars) if abs(score) >= chief.HOLD_BAND else None
+        ta_result = self._tradingagents(sym, yahoo, market_key, prep)
+        supplements = [macro_analyst.analyze_macro(ctx), sentiment_analyst.analyze(self.llm, disp, ta_result)]
+        opinions = [tradingagents_adapter.to_opinion(ta_result), *supplements]
+
+        direction = chief.TA_DIRECTION.get(ta_result.get("rating"), 0) if ta_result.get("ok") else 0
+        numbers = ta_result.get("numbers") or {}
+        plan = trader.make_plan(ctx, direction, s.horizon_bars, stop_hint=numbers.get("stop_loss"),
+                                target_hint=numbers.get("price_target")) if direction else None
         risk = risk_officer.assess(ctx, plan, s, self.fx) if plan else None
-        decision = chief.decide(opinions, bull, bear, prep.quality.ok, risk, calibrate)
+        decision = chief.decide_tradingagents(ta_result, supplements, prep.quality.ok, risk, calibrate)
         plan_d, risk_d = (plan.to_dict() if plan else None), (risk.to_dict() if risk else None)
         # One open hypothetical signal per symbol: a repeat analysis is stored, but opens no second trade.
         already_open = next((o for o in open_signals if o["symbol"] == sym), None)
@@ -238,12 +179,12 @@ class Engine:
                 f"سیگنال باز قبلی ({already_open['label']}، صادره {already_open['issued_utc'][:16]} UTC) هنوز فعال است؛ "
                 + ("سیگنال تکراری ثبت نشد" if same else "این تحلیل خلاف جهت آن است؛ سیگنال جدید ثبت نشد"))
 
-        text, source = narrative.template(disp, decision, opinions, plan_d, risk_d), "template"
-        if self.llm and self.llm.available:
-            llm_text = persian_narrative(self.llm, narrative.facts(disp, decision, opinions, plan_d, risk_d))
-            if llm_text:
-                text, source = llm_text + "\n\n— متن الگو (مرجع): " + text, "llm+template"
-
+        debate = ta_result.get("debate") or {}
+        debate_d = {side: {"role_fa": f"پژوهشگر {'صعودی' if side == 'bull' else 'نزولی'} TradingAgents",
+                           "strength": None, "points": [{"text_fa": debate[side]}] if debate.get(side) else [],
+                           "counterpoints": []} for side in ("bull", "bear")} if debate else {}
+        ta_d = ({k: ta_result.get(k) for k in ("rating", "trade_date", "analysts", "reports", "numbers", "models")}
+                if ta_result.get("ok") else {"error": ta_result.get("error")})
         chart = prep.ind.tail(180)
         chart_d = {"dates": [d.date().isoformat() for d in chart.index]}
         for col in ("open", "high", "low", "close", "volume", "sma50", "sma200", "ema20", "bb_upper", "bb_lower",
@@ -253,12 +194,12 @@ class Engine:
             "run_id": run_id, "symbol": sym, "display": disp, "yahoo": yahoo, "market": market_key,
             "data_as_of": prep.snap["date"], "last_price": prep.snap["close"], "data_source": self.provider.name,
             "quality_json": prep.quality.to_dict(), "opinions_json": [o.to_dict() for o in opinions],
-            "debate_json": {"bull": bull.to_dict(), "bear": bear.to_dict()}, "decision_json": decision.to_dict(),
-            "label": decision.label, "confidence": decision.confidence, "plan_json": plan_d, "risk_json": risk_d,
-            "narrative": text, "narrative_source": source, "chart_json": chart_d, "news_json": news,
-            "scan_json": scan_row,
-            "model_info_json": {"engine": ENGINE_VERSION, "llm_models": list(dict.fromkeys(self.llm.used_models))
-                                if self.llm else [], "tradingagents": (ta_result or {}).get("models"),
+            "debate_json": debate_d, "decision_json": decision.to_dict(), "label": decision.label,
+            "confidence": decision.confidence, "plan_json": plan_d, "risk_json": risk_d,
+            "narrative": narrative.template(disp, decision, opinions, plan_d, risk_d), "narrative_source": "template",
+            "chart_json": chart_d, "news_json": [], "scan_json": scan_row, "ta_json": ta_d,
+            "model_info_json": {"engine": ENGINE_VERSION, "tradingagents": ta_result.get("models"),
+                                "llm_models": list(dict.fromkeys(self.llm.used_models)) if self.llm else [],
                                 "settings_fingerprint": settings_fingerprint(s)},
         }
         row["id"] = self.repo.add_analysis(row)
@@ -287,14 +228,11 @@ class Engine:
     def scan_and_analyze(self, run_id: str, extra_symbols: list[str] | None = None) -> tuple[ScanResult, list[dict]]:
         result = self.scan(run_id)
         picks = result.deep_candidates(self.settings.deep_top_k, self.settings.min_interest)
-        symbols = [c.symbol for c in picks]
         hints = {c.symbol: c.market for c in picks}
-        for extra in extra_symbols or []:
-            if extra not in symbols:
-                symbols.append(extra)
+        # The user's own watchlist goes first, so the TradingAgents run cap never cuts it.
+        symbols = list(dict.fromkeys([*(extra_symbols or []), *(c.symbol for c in picks)]))
         info = {c.symbol: {"rank": c.rank, "interest": c.interest, "flags": c.flags} for c in picks}
-        deep = set(symbols)
-        analyses = self.analyze(symbols, run_id, scan_info=info, deep_symbols=deep, market_hint=hints) if symbols else []
+        analyses = self.analyze(symbols, run_id, scan_info=info, market_hint=hints) if symbols else []
         return result, analyses
 
     # ---------------------------------------------------------- evaluation ---

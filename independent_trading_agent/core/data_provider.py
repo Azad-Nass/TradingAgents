@@ -1,15 +1,17 @@
-"""Market data access with a request budget.
+"""Price data access with a request budget.
 
-:class:`YahooProvider` reads Yahoo Finance through yfinance (no key needed;
-data is delayed and unofficial, which every report states). Tests and demos
-use any object with the same three methods; nothing here invents data.
+:class:`YahooProvider` reads daily prices from Yahoo Finance through yfinance
+(no key needed; delayed and unofficial, which every report states). It feeds
+the data-quality check, the scan, the risk officer and signal evaluation; the
+analysis itself comes from TradingAgents. Tests use any object with the same
+``history`` method; nothing here invents data.
 """
 from __future__ import annotations
 
 import logging
 import time as _time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Protocol
 
 import pandas as pd
@@ -27,8 +29,6 @@ class DataProvider(Protocol):
     name: str
 
     def history(self, symbols: list[str], period: str, interval: str) -> dict[str, pd.DataFrame]: ...
-    def news(self, query: str, limit: int = 10) -> list[dict]: ...
-    def fundamentals(self, symbol: str) -> dict: ...
 
 
 @dataclass
@@ -102,48 +102,6 @@ class YahooProvider:
                     part = pd.DataFrame()
                 self._history_cache[(sym, period, interval)] = normalize_ohlcv(part)
         return {s: self._history_cache[(s, period, interval)] for s in symbols}
-
-    def news(self, query: str, limit: int = 10) -> list[dict]:
-        import yfinance as yf
-
-        self.budget.spend(f"news {query}")
-        found = _retry(lambda: yf.Search(query, news_count=limit).news) or []
-        items = []
-        for art in found:
-            ts = art.get("providerPublishTime")
-            if not ts or not art.get("title"):
-                continue
-            items.append({
-                "title": art["title"],
-                "publisher": art.get("publisher") or "نامشخص",
-                "published_utc": datetime.fromtimestamp(int(ts), tz=UTC).isoformat(),
-                "link": art.get("link"),
-                "source": "Yahoo Finance search",
-            })
-        return items
-
-    def fundamentals(self, symbol: str) -> dict:
-        import yfinance as yf
-
-        self.budget.spend(f"fundamentals {symbol}")
-        ticker = yf.Ticker(symbol)
-        info = _retry(lambda: ticker.info) or {}
-        keys = ("longName", "shortName", "quoteType", "currency", "exchange", "sector", "industry", "marketCap",
-                "trailingPE", "forwardPE", "priceToBook", "trailingEps", "forwardEps", "revenueGrowth",
-                "earningsGrowth", "profitMargins", "operatingMargins", "returnOnEquity", "debtToEquity",
-                "currentRatio", "quickRatio", "freeCashflow", "operatingCashflow", "totalRevenue",
-                "beta", "averageVolume")
-        data = {k: info.get(k) for k in keys if info.get(k) is not None}
-        try:
-            cal = ticker.calendar or {}
-            dates = cal.get("Earnings Date") if isinstance(cal, dict) else None
-            if dates:
-                data["nextEarningsDate"] = str(dates[0])
-        except Exception as exc:
-            logger.info("earnings calendar unavailable for %s: %s", symbol, exc)
-        data["_fetched_utc"] = datetime.now(UTC).isoformat()
-        data["_source"] = "Yahoo Finance quote summary (current, not point-in-time)"
-        return data
 
 
 def drop_incomplete_bars(df: pd.DataFrame, last_complete: pd.Timestamp | datetime) -> tuple[pd.DataFrame, int]:

@@ -45,6 +45,13 @@ function signed(v, d = 2) {
   const cls = v > 0.1 ? "up" : v < -0.1 ? "down" : "";
   return `<span class="ltr ${cls}">${v > 0 ? "+" : ""}${Number(v).toFixed(d)}</span>`;
 }
+function mdLite(text) {
+  return String(text || "").trim().split(/\n\s*\n/).map(p => {
+    let h = esc(p).replace(/^#{1,6}\s*(.+)$/gm, "<b>$1</b>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    const fa = (p.match(/[؀-ۿ]/g) || []).length, en = (p.match(/[A-Za-z]/g) || []).length;
+    return `<p dir="${fa > en ? "rtl" : "ltr"}">${h.replace(/\n/g, "<br>")}</p>`;  // majority script
+  }).join("");
+}
 function empty(text) { return `<div class="empty">${text}</div>`; }
 
 async function api(path) {
@@ -214,6 +221,11 @@ function agentsBlock(a) {
     ${(o.uncertainties || []).length ? `<p class="fine">عدم قطعیت: ${o.uncertainties.map(esc).join("؛ ")}</p>` : ""}</details>` : ""}`).join("");
 }
 
+const TA_SECTIONS = [["final_trade_decision", "تصمیم نهایی مدیر پرتفوی", true], ["trader_investment_plan", "برنامه معامله‌گر", false],
+  ["investment_plan", "جمع‌بندی مدیر پژوهش از مناظره", false], ["market_report", "تحلیلگر بازار (تکنیکال)", false],
+  ["news_report", "تحلیلگر اخبار و اقتصاد کلان", false], ["fundamentals_report", "تحلیلگر بنیادی (SEC EDGAR)", false],
+  ["sentiment_report", "تحلیلگر احساسات", false]];
+
 function detailHtml(a) {
   const d = a.decision_json || {}, p = a.plan_json, r = a.risk_json || {}, q = a.quality_json || {};
   const deb = a.debate_json || {};
@@ -243,13 +255,17 @@ function detailHtml(a) {
   if (risks.length) html += `<div style="margin-top:12px">${risks.map(x => `<div class="alert">${esc(x)}</div>`).join("")}</div>`;
   html += `<h3>نظر عامل‌ها</h3><div class="panel">${agentsBlock(a)}</div>`;
   if (deb.bull) {
-    const side = c => `<div><h4>${esc(c.role_fa)} <span class="fine">قدرت ${num(c.strength)}</span></h4><ul class="evidence">${(c.points || []).slice(0, 5).map(x => `<li>${esc(x.text_fa)}</li>`).join("") || "<li>—</li>"}</ul>
+    const side = c => `<div><h4>${esc(c.role_fa)} <span class="fine">قدرت ${num(c.strength)}</span></h4><ul class="evidence">${(c.points || []).slice(0, 5).map(x => `<li>${mdLite(x.text_fa)}</li>`).join("") || "<li>—</li>"}</ul>
       ${(c.counterpoints || []).length ? `<p class="fine">پاسخ به طرف مقابل:</p><ul class="evidence">${c.counterpoints.map(x => `<li>${esc(x.text_fa)} ← <i>${esc(x.response_fa)}</i></li>`).join("")}</ul>` : ""}</div>`;
     html += `<h3>مناظره صعودی و نزولی</h3><div class="panel debate">${side(deb.bull)}${side(deb.bear)}</div>`;
   }
-  const news = a.news_json || [];
-  html += `<h3>اخبار (با زمان انتشار)</h3>${news.length ? `<div class="panel"><ul class="evidence">${news.slice(0, 8).map(n => `<li>${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)}
-     <span class="src">— ${esc(n.publisher)} · <span class="ltr">${esc(when(n.published_utc))}</span>${n.sentiment != null ? " · احساسات " + signed(n.sentiment) : ""}</span></li>`).join("")}</ul></div>` : empty("خبر تازه‌ای ثبت نشده است.")}`;
+  const ta = a.ta_json || {};
+  if (ta.reports) {
+    const models = ta.models || {};
+    html += `<h3>گزارش‌های تیم TradingAgents</h3><div class="panel">${TA_SECTIONS.filter(([k]) => ta.reports[k]).map(([k, t, open]) =>
+      `<details${open ? " open" : ""}><summary>${t}</summary><div class="ta-text">${mdLite(ta.reports[k])}</div></details>`).join("")}
+      <p class="fine">مدل‌ها: <span class="ltr">${esc(models.provider || "")} · ${esc(models.quick || "")} / ${esc(models.deep || "")}</span> — تحلیلگرها: ${esc((ta.analysts || []).join("، "))}</p></div>`;
+  } else if (ta.error) html += `<div class="alert err">TradingAgents: ${esc(ta.error)}</div>`;
   if (a.narrative) html += `<h3>جمع‌بندی ${a.narrative_source === "llm+template" ? "(مدل زبانی + الگو)" : "(الگو)"}</h3><div class="panel" style="white-space:pre-line">${esc(a.narrative)}</div>`;
   if ((a.history || []).length > 1) html += `<h3>تحلیل‌های قبلی این نماد</h3><div class="panel">${a.history.map(h => `<div class="fine"><span class="ltr">${esc(when(h.created_utc))}</span> ${pill(h.label)}</div>`).join("")}</div>`;
   return html;
@@ -312,7 +328,7 @@ const views = {
     return marketView("ترمینال رمزارز", "ابتدا BTC و ETH، سپس رمزارزهای نقدشونده منتخب. بازار ۲۴ ساعته است و نوسان بالاتری دارد.", ["crypto"]);
   },
   ai() {
-    return marketView("مرکز هوش مصنوعی", "نظر مستقل هر عامل، مناظره صعودی و نزولی، تصمیم نهایی، میزان اطمینان و منابع. تصمیم‌ها قاعده‌محور و مبتنی بر شواهدند؛ مدل زبانی فقط متن را بازنویسی می‌کند.", ["forex", "nasdaq", "nyse", "crypto", "tsx", "tsxv", "other"]);
+    return marketView("مرکز هوش مصنوعی", "موتور تحلیل، تیم چندعاملی TradingAgents است: تحلیلگرها، مناظره صعودی و نزولی، معامله‌گر، تیم ریسک و مدیر پرتفوی. نرخ‌ها و بازده واقعی از FRED و احساسات گزارش خبری با Gemini کنار آن می‌آیند؛ کیفیت داده و مدیر ریسک می‌توانند معامله را متوقف کنند.", ["forex", "nasdaq", "nyse", "crypto", "tsx", "tsxv", "other"]);
   },
   async risk() {
     const r = await api("/api/risk");

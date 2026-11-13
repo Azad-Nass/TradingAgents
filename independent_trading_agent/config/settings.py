@@ -43,11 +43,10 @@ class Settings:
     max_symbols_per_market: int = 15
     max_total_symbols: int = 60
     top_n: int = 5
-    deep_top_k: int = 5
+    deep_top_k: int = 3            # scan picks sent to TradingAgents (after the watchlist)
     min_interest: float = 0.30
     max_data_requests: int = 40
     request_delay_seconds: float = 0.5
-    news_max_age_days: int = 7
 
     timeframe: str = "1d"
     lookback_period: str = "2y"
@@ -74,12 +73,15 @@ class Settings:
     llm_enabled: bool = False
     llm_chain: str = ("gemini:gemini-3.5-flash-lite,gemini:gemini-3.5-flash,"
                       "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free")
-    max_llm_calls: int = 20
+    max_llm_calls: int = 10        # Gemini sentiment calls per run (one per analysed symbol)
     llm_timeout_seconds: float = 30.0
 
-    tradingagents_enabled: bool = False
-    tradingagents_top_k: int = 1
-    tradingagents_analysts: str = "market,news"
+    # TradingAgents is the analysis engine. Each run of it makes dozens of LLM calls, so runs are capped.
+    tradingagents_enabled: bool = True
+    tradingagents_max_runs: int = 4
+    tradingagents_analysts: str = "market,news"                    # forex, gold, crypto
+    tradingagents_analysts_stock: str = "market,news,fundamentals"  # stocks (SEC EDGAR statements)
+    tradingagents_language: str = "Persian"
     tradingagents_timeout_seconds: int = 900
 
     pdf_enabled: bool = True

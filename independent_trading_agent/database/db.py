@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ita_analyses (
     data_as_of TEXT, last_price REAL, data_source TEXT, quality_json TEXT, opinions_json TEXT,
     debate_json TEXT, decision_json TEXT, label TEXT, confidence REAL, plan_json TEXT, risk_json TEXT,
     narrative TEXT, narrative_source TEXT, chart_json TEXT, news_json TEXT, scan_json TEXT,
-    model_info_json TEXT
+    model_info_json TEXT, ta_json TEXT
 );
 CREATE INDEX IF NOT EXISTS ita_analyses_symbol ON ita_analyses(symbol, created_utc);
 CREATE TABLE IF NOT EXISTS ita_signals (
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS ita_reports (
 JSON_COLS = {c for c in ("settings_json", "summary_json", "errors_json", "quality_json", "opinions_json",
                          "debate_json", "decision_json", "plan_json", "risk_json", "chart_json", "news_json",
                          "scan_json", "model_info_json", "targets_json", "evidence_json", "sizing_json",
-                         "config_json", "flags_json", "metrics_json")}
+                         "config_json", "flags_json", "metrics_json", "ta_json")}
 
 
 def now_utc() -> str:
@@ -85,6 +85,9 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
             con.executescript(SCHEMA)
+            cols = {r[1] for r in con.execute("PRAGMA table_info(ita_analyses)")}
+            if "ta_json" not in cols:  # databases created before TradingAgents became the engine
+                con.execute("ALTER TABLE ita_analyses ADD COLUMN ta_json TEXT")
 
     @contextmanager
     def connect(self):

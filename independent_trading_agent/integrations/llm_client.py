@@ -88,38 +88,20 @@ def _json_block(text: str):
     return json.loads(match.group(0))
 
 
-def classify_headlines(llm: LLMClient, subject: str, headlines: list[str]) -> list[dict] | None:
-    """Per-headline sentiment in [-1, 1] and relevance in [0, 1] for ``subject``; None on failure."""
-    if not headlines or not llm.available:
+
+def rate_report_sentiment(llm: LLMClient, subject: str, text: str) -> dict | None:
+    """Sentiment of a news report for ``subject``: {"sentiment": -1..1, "reason_fa": str}; None on failure."""
+    if not text.strip() or not llm.available:
         return None
-    listing = "\n".join(f"{i}. {h}" for i, h in enumerate(headlines))
-    system = ("You rate financial news headlines. Answer with JSON only: a list of objects "
-              '{"i": index, "sentiment": number from -1 (bearish) to 1 (bullish), "relevance": 0..1}. '
-              "Judge only what the headline says about the given instrument; unrelated headlines get relevance 0.")
+    system = ("You rate the market sentiment that a news report implies for one instrument. Answer with JSON only: "
+              '{"sentiment": number from -1 (clearly bearish) to 1 (clearly bullish), '
+              '"reason_fa": "one short sentence in Persian naming the main driver"}. '
+              "Use only what the report says; if it is mixed or unclear, answer close to 0.")
     try:
-        rows = _json_block(llm.chat(system, f"Instrument: {subject}\nHeadlines:\n{listing}", max_tokens=600))
-        out = []
-        for row in rows:
-            i = int(row["i"])
-            if 0 <= i < len(headlines):
-                out.append({"i": i, "sentiment": max(-1.0, min(1.0, float(row["sentiment"]))),
-                            "relevance": max(0.0, min(1.0, float(row.get("relevance", 1))))})
-        return out
+        prompt = f"Instrument: {subject}\n\nReport:\n{text[:6000]}"
+        data = _json_block(llm.chat(system, prompt, max_tokens=400))
+        return {"sentiment": max(-1.0, min(1.0, float(data["sentiment"]))),
+                "reason_fa": str(data.get("reason_fa", ""))[:300]}
     except (LLMUnavailable, ValueError, KeyError, TypeError) as exc:
-        logger.info("headline classification unavailable: %s", redact(str(exc)))
-        return None
-
-
-def persian_narrative(llm: LLMClient, facts: dict) -> str | None:
-    """A short Persian summary of decided facts; None when no model answers."""
-    if not llm.available:
-        return None
-    system = ("تو یک تحلیلگر مالی هستی. فقط بر اساس داده JSON داده‌شده، یک خلاصه فارسی روان در حداکثر ۱۲۰ کلمه بنویس. "
-              "هیچ عدد، قیمت، خبر یا ادعایی که در JSON نیست اضافه نکن. تصمیم نهایی را تغییر نده. "
-              "توصیه قطعی یا تضمین سود نده. نماد و اصطلاحات فنی را انگلیسی نگه دار.")
-    try:
-        text = llm.chat(system, json.dumps(facts, ensure_ascii=False), max_tokens=500, temperature=0.3)
-        return text.strip()
-    except LLMUnavailable as exc:
-        logger.info("narrative unavailable: %s", exc)
+        logger.info("report sentiment unavailable: %s", redact(str(exc)))
         return None

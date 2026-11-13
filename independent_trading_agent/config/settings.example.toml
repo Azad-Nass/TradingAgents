@@ -14,7 +14,7 @@ watchlist = ["EURUSD", "XAUUSD"]
 max_symbols_per_market = 15
 max_total_symbols = 60
 top_n = 5            # opportunities listed per direction
-deep_top_k = 5       # candidates sent to the full agent analysis
+deep_top_k = 3       # scan picks sent to TradingAgents, after the watchlist
 min_interest = 0.30  # weaker scan scores are not sent on, whatever the market's priority
 max_data_requests = 40
 
@@ -30,13 +30,16 @@ portfolio_value = 100000.0
 risk_per_trade_pct = 1.0
 min_reward_risk = 1.5
 
-# Optional LLM help: news sentiment and a Persian narrative only
-llm_enabled = false
-max_llm_calls = 20
+# LLM for the sentiment reading of TradingAgents' news report
+llm_enabled = true
+max_llm_calls = 10
 
-# Optional deep analysis through the TradingAgents project next door
-tradingagents_enabled = false
-tradingagents_top_k = 1
+# TradingAgents is the analysis engine (dozens of LLM calls per symbol, so runs are capped)
+tradingagents_enabled = true
+tradingagents_max_runs = 4
+tradingagents_analysts = "market,news"
+tradingagents_analysts_stock = "market,news,fundamentals"
+tradingagents_language = "Persian"
 
 [universe]
 forex = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "XAUUSD"]

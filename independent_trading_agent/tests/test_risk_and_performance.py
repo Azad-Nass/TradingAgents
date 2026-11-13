@@ -108,7 +108,7 @@ def test_exposure_nets_currencies():
 
 
 def test_stale_macro_rates_are_reported_but_not_used():
-    from independent_trading_agent.agents import fundamental_analyst
+    from independent_trading_agent.agents import macro_analyst as fundamental_analyst
     from independent_trading_agent.agents.base import AnalysisContext
     from independent_trading_agent.core.markets import MARKETS
 
@@ -138,7 +138,7 @@ def test_gold_lots_use_ounces_and_dollar_pips():
 
 
 def test_gold_macro_reads_real_yields():
-    from independent_trading_agent.agents import fundamental_analyst
+    from independent_trading_agent.agents import macro_analyst as fundamental_analyst
     from independent_trading_agent.agents.base import AnalysisContext
     from independent_trading_agent.core.markets import MARKETS
 

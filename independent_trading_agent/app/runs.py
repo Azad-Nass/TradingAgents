@@ -45,14 +45,14 @@ def make_report(repo: Repository, settings, run_id: str, *, pdf: bool | None = N
     return {"html": str(path), "pdf": str(pdf_path) if pdf_path else None, "pdf_note": pdf_note}
 
 
-def run_analyze(settings, symbols: list[str], *, deep: bool = False, report: bool = True, engine: Engine | None = None,
+def run_analyze(settings, symbols: list[str], *, report: bool = True, engine: Engine | None = None,
                 market: str | None = None) -> dict:
     with RunLock(settings.lock_path):
         engine = engine or Engine(settings)
         run_id = engine.repo.start_run("analyze", settings.public_dict())
         try:
             hints = dict.fromkeys(symbols, market) if market else None
-            rows = engine.analyze(symbols, run_id, deep_symbols=set(symbols) if deep else None, market_hint=hints)
+            rows = engine.analyze(symbols, run_id, market_hint=hints)
             summary = _finish(engine, run_id, "analyze", {"symbols": symbols, "labels": {r["symbol"]: r["label"]
                                                                                          for r in rows}})
         except Exception as exc:

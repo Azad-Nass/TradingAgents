@@ -7,6 +7,7 @@ TSXV. Files are archived by date and never overwritten.
 from __future__ import annotations
 
 import html
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -24,6 +25,20 @@ LABEL_CLASS = {"STRONG BUY": "buy", "BUY": "buy", "HOLD": "hold", "SELL": "sell"
 
 def e(x) -> str:
     return html.escape("" if x is None else str(x))
+
+
+def md_lite(text: str) -> str:
+    """Escaped text with **bold**, # headings and one paragraph per block, each in its own direction."""
+    parts = []
+    for para in re.split(r"\n\s*\n", (text or "").strip()):
+        h = e(para)
+        h = re.sub(r"(?m)^#{1,6}\s*(.+)$", r"<b>\1</b>", h)
+        h = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", h)
+        persian = len(re.findall(r"[؀-ۿ]", para))
+        latin = len(re.findall(r"[A-Za-z]", para))
+        direction = "rtl" if persian > latin else "ltr"  # majority script, not the first letter
+        parts.append(f'<p dir="{direction}">{h.replace(chr(10), "<br>")}</p>')
+    return "".join(parts)
 
 
 def num(v, digits: int = 4) -> str:
@@ -79,7 +94,8 @@ th{color:var(--muted);font-weight:600;white-space:nowrap}td.num,th.num{text-alig
 .badge.hold{color:var(--hold);background:var(--hold-bg)}.badge.none{color:var(--none);background:var(--none-bg)}
 .warn{border-inline-start:4px solid var(--hold);background:var(--hold-bg);padding:10px 14px;border-radius:6px;margin:10px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}ul{margin:4px 0;padding-inline-start:20px}
-.pos{color:var(--buy)}.neg{color:var(--sell)}nav.toc a{margin-inline-end:14px}
+.ta-text{font-size:.9rem;color:var(--muted);padding:2px 0 8px}.ta-text p{margin:0 0 8px}
+details summary{cursor:pointer;font-weight:600;margin:6px 0}.pos{color:var(--buy)}.neg{color:var(--sell)}nav.toc a{margin-inline-end:14px}
 @media print{body{background:#fff;font-size:12px}.card{break-inside:avoid}h2{break-before:page}h2:first-of-type{break-before:auto}}
 """
 
@@ -139,17 +155,17 @@ def _section_a(run: dict, scan_rows: list[dict], analyses: list[dict], settings,
             f"{e(r['symbol'])} {_stance(r['score'])}" for r in strongest)])
     out.append(_table(["بازار", "قوی‌ترین روندها (امتیاز تکنیکال)"], trend_rows))
 
-    out.append("<h3>۴. اخبار و رویدادهای اثرگذار</h3>")
-    seen, news_rows = set(), []
+    out.append("<h3>۴. اخبار و رویدادهای اثرگذار (از تحلیلگر اخبار TradingAgents)</h3>")
+    news_rows = []
     for a in analyses:
-        for n in (a.get("news_json") or [])[:4]:
-            if n["title"] in seen:
-                continue
-            seen.add(n["title"])
-            news_rows.append([e(a["display"]), e(n["title"]), e(n.get("publisher")),
-                              f'<span class="ltr">{e(n["published_utc"][:16].replace("T", " "))} UTC</span>',
-                              _stance(n.get("sentiment"))])
-    out.append(_table(["نماد", "عنوان", "منبع", "زمان انتشار", "احساسات"], news_rows[:15]))
+        news = ((a.get("ta_json") or {}).get("reports") or {}).get("news_report") or ""
+        sent = next((o for o in a.get("opinions_json") or [] if o.get("agent") == "sentiment_analyst"), None)
+        reading = (sent or {}).get("evidence") or []
+        if news:
+            excerpt = news.strip().replace("#", "")[:420] + ("…" if len(news) > 420 else "")
+            news_rows.append([e(a["display"]), f'<span style="white-space:pre-line">{e(excerpt)}</span>',
+                              e(reading[0]["text_fa"]) if reading else "—"])
+    out.append(_table(["نماد", "خلاصه گزارش خبری", "احساسات (Gemini)"], news_rows))
 
     def opp_rows(items):
         return [[str(i + 1), f"<b>{e(r['symbol'])}</b>", _market_name(r["market"]), _stance(r["score"]),
@@ -174,6 +190,17 @@ def _section_a(run: dict, scan_rows: list[dict], analyses: list[dict], settings,
                    for a in analyses if a["label"] in ("HOLD", "NO TRADE")]
     out.append(_table(["نماد", "بازار", "جذابیت", "دلیل پیگیری"], watch_rows))
     return "\n".join(out)
+
+
+TA_SECTIONS = [
+    ("final_trade_decision", "تصمیم نهایی مدیر پرتفوی", True),
+    ("trader_investment_plan", "برنامه معامله‌گر", True),
+    ("investment_plan", "جمع‌بندی مدیر پژوهش از مناظره", False),
+    ("market_report", "تحلیلگر بازار (تکنیکال)", False),
+    ("news_report", "تحلیلگر اخبار و اقتصاد کلان", False),
+    ("fundamentals_report", "تحلیلگر بنیادی (SEC EDGAR)", False),
+    ("sentiment_report", "تحلیلگر احساسات", False),
+]
 
 
 def _analysis_card(a: dict, digits: int) -> str:
@@ -209,12 +236,27 @@ def _analysis_card(a: dict, digits: int) -> str:
         if op.get("uncertainties"):
             out.append('<p class="muted">عدم قطعیت: ' + "؛ ".join(e(u) for u in op["uncertainties"]) + "</p>")
 
+    ta = a.get("ta_json") or {}
+    if ta.get("reports"):
+        out.append("<h4>گزارش‌های تیم TradingAgents</h4>")
+        for key, title, is_open in TA_SECTIONS:
+            text = ta["reports"].get(key)
+            if text:
+                out.append(f'<details{" open" if is_open else ""}><summary>{e(title)}</summary>'
+                           f'<div class="ta-text">{md_lite(text)}</div></details>')
+        models = ta.get("models") or {}
+        if models:
+            out.append(f'<p class="muted">مدل‌ها: <span class="ltr">{e(models.get("provider"))} · '
+                       f'{e(models.get("quick"))} / {e(models.get("deep"))}</span> — تحلیلگرها: '
+                       f'{e("، ".join(ta.get("analysts") or []))}</p>')
+    elif ta.get("error"):
+        out.append(f'<div class="warn">TradingAgents: {e(ta["error"])}</div>')
     deb = a.get("debate_json") or {}
     if deb:
         out.append('<h4>استدلال صعودی و نزولی</h4><div class="grid">')
         for side in ("bull", "bear"):
             c = deb.get(side) or {}
-            pts = "".join(f"<li>{e(p['text_fa'])}</li>" for p in c.get("points", [])[:5]) or "<li>—</li>"
+            pts = "".join(f"<li>{md_lite(p['text_fa'])}</li>" for p in c.get("points", [])[:5]) or "<li>—</li>"
             cps = "".join(f"<li>{e(p['text_fa'])} ← <i>{e(p['response_fa'])}</i></li>"
                           for p in c.get("counterpoints", []))
             out.append(f'<div><b>{e(c.get("role_fa"))}</b> (قدرت {num(c.get("strength"), 2)})<ul>{pts}</ul>'

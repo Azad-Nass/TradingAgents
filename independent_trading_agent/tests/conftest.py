@@ -66,6 +66,21 @@ class FakeProvider:
         return dict(self._fund)
 
 
+@pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """No test reaches a real service: TradingAgents, FRED and LLM keys are cut off for every test."""
+    import os
+
+    from independent_trading_agent.integrations import fred, tradingagents_adapter
+
+    for key in [k for k in os.environ if k.startswith("INDEPENDENT_AGENT_") and k.endswith("_API_KEY")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(tradingagents_adapter, "run_deep_analysis",
+                        lambda *a, **k: {"ok": False, "error": "offline test: TradingAgents not called"})
+    monkeypatch.setattr(fred, "forex_macro", lambda *a, **k: {"available": False, "reason_fa": "offline test"})
+    monkeypatch.setattr(fred, "gold_macro", lambda *a, **k: {"available": False, "reason_fa": "offline test"})
+
+
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     s = Settings()

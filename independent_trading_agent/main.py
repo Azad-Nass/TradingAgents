@@ -58,7 +58,7 @@ def _summary_line(row: dict) -> str:
 def cmd_analyze(settings, args) -> int:
     from .app.runs import run_analyze
 
-    out = run_analyze(settings, args.symbols, deep=args.deep, report=not args.no_report, market=args.market)
+    out = run_analyze(settings, args.symbols, report=not args.no_report, market=args.market)
     _print(f"run {out['run_id']}")
     for row in out["analyses"]:
         _print(_summary_line(row))
@@ -219,7 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("analyze", help="mode 1: analyse chosen symbols")
     a.add_argument("symbols", nargs="+", help="e.g. EURUSD AAPL BTC-USD RY.TO GC=F")
     a.add_argument("--market", choices=["forex", "nasdaq", "nyse", "crypto", "tsx", "tsxv", "other"])
-    a.add_argument("--deep", action="store_true", help="also run the TradingAgents LLM team (if enabled)")
     a.add_argument("--no-report", action="store_true")
     s = sub.add_parser("scan", help="mode 2: scan markets and analyse the best candidates")
     s.add_argument("--markets", help="comma list, e.g. forex,nasdaq")
